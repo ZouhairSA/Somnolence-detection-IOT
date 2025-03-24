@@ -1,95 +1,38 @@
-# Drowsiness Detection System
+# SafeSentry - Système de Détection de Somnolence avec Raspberry Pi et Arduino (Projet IoT)
 
-![image](https://github.com/user-attachments/assets/81ab2ce9-94ed-479b-bb76-d289c99800fc)
-![image](https://github.com/user-attachments/assets/0615e219-f623-47ff-9448-946a9c273500)
-![image](https://github.com/user-attachments/assets/b25705ed-d976-45a3-a080-fe1e12f220fd)
+## Aperçu
 
-## Overview
+**SafeSentry** est un système de détection de somnolence conçu pour améliorer la sécurité routière en surveillant l'état d'alerte d'un conducteur en temps réel. Ce projet, réalisé dans le cadre de la matière **Internet des Objets (IoT)**, utilise un Raspberry Pi pour le traitement des données et un Arduino avec un buzzer pour émettre des alertes sonores. Le système détecte les signes de somnolence (comme la fermeture des yeux ou les bâillements) grâce à l'analyse des caractéristiques faciales et émet une alerte pour éviter les accidents potentiels.
 
-The **Drowsiness Detection System** is a tool designed to monitor a person's alertness in real-time by analyzing facial features. By utilizing computer vision and machine learning techniques, this system can detect signs of drowsiness and alert the user before it becomes dangerous, particularly while driving.
+Ce projet combine des techniques de vision par ordinateur et d'apprentissage automatique pour analyser les flux vidéo provenant d'une webcam, offrant une solution économique et fiable pour la détection de somnolence en temps réel.
 
-## Features
+## Sujet du Projet
 
-- **Real-time Detection**: Monitors and detects drowsiness in real-time using a webcam or pre-recorded video.
-- **Dual Model Approach**: Utilizes two YOLOv8 models—one for eye state detection (open/closed) and another for yawning detection.
-- **Facial Landmarks**: Analyzes eye closure, head position, and yawning frequency using advanced facial recognition.
-- **Customizable Alerts**: Alerts can be customized based on detection thresholds.
-- **Data Capture**: Captures and logs data for further analysis or training.
-- **Auto Labeling**: Automated bounding box generation using GroundingDINO for training datasets.
-- **User Interface**: A user-friendly interface built with PyQt5 to visualize detection results.
+L'objectif principal de ce projet IoT est de **détecter la somnolence et alerter le conducteur en temps réel**, garantissant ainsi des conditions de conduite plus sûres. Le système intègre un Raspberry Pi pour le traitement vidéo et un Arduino pour contrôler un buzzer qui émet des alertes sonores, offrant une solution efficace et abordable pour prévenir les accidents causés par la fatigue du conducteur.
 
-### Key Files
+## Fonctionnalités
 
-- **`AutoLabelling.py`**: Script to automatically label data for training.
-- **`CaptureData.py`**: Captures video data for drowsiness detection.
-- **`DrowsinessDetector.py`**: Core detection logic, including facial landmarks and alert systems.
-- **`LoadData.ipynb`**: Notebook to load and preprocess data.
-- **`RedirectData.ipynb`**: Redirect and manage captured data.
-- **`train.ipynb`**: Jupyter notebook for training the detection model.
+- **Détection en temps réel** : Surveille et détecte la somnolence en temps réel à l'aide d'une webcam connectée à un Raspberry Pi.
+- **Approche à double modèle** : Utilise deux modèles YOLOv8 — un pour la détection de l'état des yeux (ouverts/fermés) et un autre pour la détection des bâillements.
+- **Points de repère faciaux** : Analyse la fermeture des yeux et la fréquence des bâillements à l'aide de MediaPipe pour une reconnaissance faciale précise.
+- **Alertes sonores via Arduino** : Active un buzzer via un Arduino lorsqu'une somnolence est détectée.
+- **Interface utilisateur** : Une interface conviviale construite avec PyQt5 pour visualiser les résultats de détection et les statistiques.
+- **Enregistrement des données** : Capture et enregistre les données de détection pour une analyse ultérieure.
+- **Seuils personnalisables** : Permet d'ajuster les seuils de détection pour une sensibilité adaptée.
+
+### Fichiers Clés
+
+- **`DrowsinessDetector.py`** : Logique principale de détection, incluant les points de repère faciaux, le système d'alerte et l'intégration avec Arduino.
+- **`AutoLabelling.py`** : Script pour étiqueter automatiquement les données pour l'entraînement.
+- **`CaptureData.py`** : Capture les données vidéo pour la détection de somnolence.
+- **`LoadData.ipynb`** : Notebook pour charger et prétraiter les données.
+- **`RedirectData.ipynb`** : Redirige et gère les données capturées.
+- **`train.ipynb`** : Notebook Jupyter pour entraîner le modèle de détection.
+- **`arduino_buzzer.ino`** : Code Arduino pour contrôler le buzzer en fonction des commandes du Raspberry Pi.
 
 ## Installation
 
-1. **Clone the repository:**
+1. **Cloner le dépôt :**
     ```bash
-    git clone https://github.com/tyrerodr/Real_time_drowsy_driving_detection.git
-    cd Real_time_drowsy_driving_detection
-    ```
-
-2. **Create a virtual environment:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-    ```
-
-3. **Install the dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4. **Run the detection script:**
-    ```bash
-    python DrowsinessDetector.py
-    ```
-
-## Usage
-
-- **Real-Time Detection**: Simply run the `DrowsinessDetector.py` script and ensure your webcam is connected.
-- **Data Capture**: Use `CaptureData.py` to record and log video data for analysis or training purposes.
-- **Training**: Use `train.ipynb` to train the model with custom datasets.
-
-## How It Works
-
-The system uses two models based on YOLOv8:
-
-1. **Eye Detection Model**: This model detects whether the eyes are open or closed. It was trained using the following public datasets:
-    - [Eyes Dataset](https://www.kaggle.com/datasets/charunisa/eyes-dataset/code)
-    - [MRL Eye Dataset](https://www.kaggle.com/datasets/tauilabdelilah/mrl-eye-dataset)
-
-   Approximately 53,000 images were used for training and 3,000 images for validation.
-
-2. **Yawning Detection Model**: This model detects yawning by classifying images where the mouth is open (yawning) or closed. It was trained using the following public dataset:
-    - [Yawning Dataset](https://www.kaggle.com/datasets/deepankarvarma/yawning-dataset-classification?select=yawn)
-
-To prepare the images for YOLO training, the [GroundingDINO](https://github.com/IDEA-Research/GroundingDINO) library was used to generate bounding boxes, ensuring precise detection areas.
-
-Once the models were trained, the prediction logic was implemented, setting confidence thresholds for each class (eyes closed/open, yawning/not yawning). The results are displayed through a custom interface created using PyQt5.
-
-### Technologies Used
-
-- **Python**: Core programming language.
-- **YOLOv8**: Used for object detection.
-- **OpenCV**: For computer vision tasks.
-- **GroundingDINO**: For generating bounding boxes.
-- **Keras/TensorFlow**: For model training and inference.
-- **PyQt5**: For the graphical user interface.
-
-## Future Improvements
-
-- **Integration with Wearables**: Adding support for wearable devices to monitor heart rate and other vital signs.
-- **Multi-Person Detection**: Expanding the system to detect drowsiness in multiple individuals simultaneously.
-- **Mobile Application**: Developing a mobile app version for on-the-go monitoring.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request or open an issue if you have any suggestions or improvements.
-
+    git clone https://github.com/ZouhairSA/Somnolence-detection-IOT.git
+    cd Somnolence-detection-IOT
