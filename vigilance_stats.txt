@@ -1,0 +1,5 @@
+Clignements: 2
+Micro-sommeils: 0 s
+Bâillements: 1
+Durée bâillements: 0.18 s
+Niveau de fatigue: 1%

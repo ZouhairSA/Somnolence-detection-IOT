@@ -1,0 +1,4 @@
+Clignements: 5
+Micro-sommeils: 0 s
+Bâillements: 0
+Durée bâillements: 0 s

@@ -1,0 +1,6 @@
+Clignements: 20
+Micro-sommeils: 0 s
+Bâillements: 5
+Durée bâillements: 0.77 s
+Niveau de fatigue: 7%
+Alertes enregistrées pour laptopCam: 2

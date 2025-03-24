@@ -1,0 +1,6 @@
+Clignements: 0
+Micro-sommeils: 0 s
+Bâillements: 0
+Durée bâillements: 0 s
+Niveau de fatigue: 0%
+Alertes enregistrées pour bus1: 0
