@@ -1,0 +1,6 @@
+Clignements: 0
+Micro-sommeils: 0 s
+Bâillements: 1
+Durée bâillements: 0.72 s
+Niveau de fatigue: 7%
+Alertes enregistrées pour Caméra 1: 72
