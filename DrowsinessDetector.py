@@ -35,19 +35,33 @@ class VigilanceCore(QMainWindow):
         self.yawn_in_progress = False
 
         # Initialisation de MediaPipe FaceMesh
-        self.face_mesh = mp.solutions.face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-        self.points_ids = [187, 411, 152, 68, 174, 399, 298]  # Points pour yeux et bouche
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        
+        # Points d'intérêt pour les yeux et la bouche
+        self.points_ids = {
+            'left_eye': [33, 246, 161, 160],
+            'right_eye': [362, 398, 384, 385],
+            'mouth': [61, 291, 199, 419]
+        }
 
         # Initialisation des modèles YOLO
-        self.detectyawn = YOLO("runs/detectyawn/train/weights/best.pt")  # Modèle personnalisé pour bâillements
-        self.detecteye = YOLO("runs/detecteye/train/weights/best.pt")    # Modèle personnalisé pour yeux
-        self.yolo_object = YOLO("yolov8n.pt")                            # Modèle YOLOv8 préentraîné pour objets
+        self.detectyawn = YOLO("runs/detectyawn/train/weights/best.pt")
+        self.detecteye = YOLO("runs/detecteye/train/weights/best.pt")
+        self.yolo_object = YOLO("yolov8n.pt")
 
         # Configuration de la fenêtre principale
-        self.setWindowTitle("Vigilance Core")
+        self.setWindowTitle("Détection de Somnolence")
         self.setGeometry(100, 100, 1280, 720)
         self.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1F2A44, stop:1 #3E4C75);
+            QMainWindow {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A0F23, stop:1 #1E2A44);
+                border: none;
+            }
         """)
 
         # Widget central et layout principal
@@ -55,89 +69,43 @@ class VigilanceCore(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
         self.main_layout.setContentsMargins(20, 20, 20, 20)
-        self.main_layout.setSpacing(15)
+        self.main_layout.setSpacing(20)
 
-        # Header sophistiqué
-        self.header_widget = QWidget()
-        self.header_layout = QHBoxLayout(self.header_widget)
-        self.header_widget.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4682B4, stop:1 #5A9BD4);
-            border-radius: 12px;
-            border: 1px solid #FFFFFF;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
-            padding: 10px;
-        """)
-
-        # Logo école (gauche)
-        self.school_logo = QLabel(self)
-        school_pixmap = QPixmap("runs/img/hestim.png").scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.school_logo.setPixmap(school_pixmap)
-        self.school_logo.setStyleSheet("""
-            border-radius: 40px;
-            background-color: #FFFFFF;
-            padding: 5px;
-            border: 1px solid #4682B4;
-        """)
-        self.header_layout.addWidget(self.school_logo)
-
-        # Titre
-        self.header_title = QLabel("Vigilance Core")
-        self.header_title.setFont(QFont("Lato", 28, QFont.Bold))
-        self.header_title.setStyleSheet("""
-            color: #FFFFFF;
-            text-align: center;
-            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
-            background: none;
-        """)
-        self.header_layout.addStretch()
-        self.header_layout.addWidget(self.header_title)
-        self.header_layout.addStretch()
-
-        # Logo matière (droite)
-        self.subject_logo = QLabel(self)
-        subject_pixmap = QPixmap("runs/img/iot.jpg").scaled(80, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.subject_logo.setPixmap(subject_pixmap)
-        self.subject_logo.setStyleSheet("""
-            border-radius: 40px;
-            background-color: #FFFFFF;
-            padding: 5px;
-            border: 1px solid #4682B4;
-        """)
-        self.header_layout.addWidget(self.subject_logo)
-
-        self.main_layout.addWidget(self.header_widget, stretch=1)
-
-        # Contenu principal
+        # Contenu principal avec effet verre dépoli
         self.content_widget = QWidget()
         self.content_layout = QHBoxLayout(self.content_widget)
-        self.content_layout.setSpacing(20)
-        self.main_layout.addWidget(self.content_widget, stretch=8)
+        self.content_layout.setSpacing(25)
+        self.main_layout.addWidget(self.content_widget, stretch=1)
 
-        # Zone vidéo élégante
+        # Zone vidéo avec bordure néon
         self.video_label = QLabel(self)
         self.video_label.setStyleSheet("""
-            border-radius: 12px;
-            background-color: #1F2A44;
-            border: 2px solid #4682B4;
-            box-shadow: 0 0 15px rgba(70, 130, 180, 0.3);
+            QLabel {
+                border-radius: 20px;
+                background-color: rgba(14, 20, 35, 0.8);
+                border: 3px solid #00D4FF;
+                box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+            }
         """)
-        self.video_label.setMinimumSize(700, 450)
+        self.video_label.setMinimumSize(800, 500)
         self.video_label.setScaledContents(True)
         self.content_layout.addWidget(self.video_label, stretch=3)
 
-        # Panneau de contrôle parfait
+        # Panneau de contrôle avec effet verre dépoli
         self.control_widget = QWidget()
         self.control_layout = QVBoxLayout(self.control_widget)
         self.control_widget.setStyleSheet("""
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4682B4, stop:1 #5A9BD4);
-            border-radius: 12px;
-            border: 1px solid #FFFFFF;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
-            padding: 15px;
+            QWidget {
+                background: rgba(14, 20, 35, 0.7);
+                border-radius: 20px;
+                border: 2px solid #007BFF;
+                box-shadow: 0 0 15px rgba(0, 123, 255, 0.5);
+                padding: 20px;
+            }
         """)
         self.content_layout.addWidget(self.control_widget, stretch=1)
 
-        # Barre de fatigue
+        # Barre de fatigue avec dégradé néon
         self.fatigue_bar = QProgressBar()
         self.fatigue_bar.setRange(0, 100)
         self.fatigue_bar.setValue(0)
@@ -146,48 +114,53 @@ class VigilanceCore(QMainWindow):
         self.fatigue_bar.setStyleSheet("""
             QProgressBar {
                 border: none;
-                border-radius: 8px;
-                background-color: #1F2A44;
+                border-radius: 10px;
+                background: rgba(10, 15, 35, 0.8);
                 text-align: center;
                 color: #FFFFFF;
-                font-family: 'Lato';
-                font-size: 14px;
-                box-shadow: 0 0 5px rgba(255, 255, 255, 0.1);
+                font-family: 'Orbitron';
+                font-size: 16px;
+                box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4682B4, stop:1 #87CEEB);
-                border-radius: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #FF007A);
+                border-radius: 10px;
+                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
             }
         """)
         self.control_layout.addWidget(self.fatigue_bar)
 
-        # Statut principal
+        # Statut principal avec effet néon
         self.status_label = QLabel("État: Optimal")
-        self.status_label.setFont(QFont("Lato", 18, QFont.Bold))
+        self.status_label.setFont(QFont("Orbitron", 20, QFont.Bold))
         self.status_label.setStyleSheet("""
-            color: #FFFFFF;
-            text-align: center;
-            padding: 12px;
-            background-color: rgba(70, 130, 180, 0.2);
-            border-radius: 8px;
-            box-shadow: 0 0 5px rgba(255, 255, 255, 0.1);
+            QLabel {
+                color: #00D4FF;
+                text-align: center;
+                padding: 15px;
+                background: rgba(0, 212, 255, 0.2);
+                border-radius: 12px;
+                box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
+            }
         """)
         self.control_layout.addWidget(self.status_label)
 
-        # Alerte
+        # Alerte avec effet clignotant
         self.alert_label = QLabel("")
-        self.alert_label.setFont(QFont("Lato", 16, QFont.Bold))
+        self.alert_label.setFont(QFont("Orbitron", 18, QFont.Bold))
         self.alert_label.setStyleSheet("""
-            color: #B22222;
-            text-align: center;
-            padding: 10px;
-            background-color: rgba(178, 34, 34, 0.2);
-            border-radius: 8px;
-            box-shadow: 0 0 5px rgba(178, 34, 34, 0.3);
+            QLabel {
+                color: #FF007A;
+                text-align: center;
+                padding: 12px;
+                background: rgba(255, 0, 122, 0.2);
+                border-radius: 12px;
+                box-shadow: 0 0 15px rgba(255, 0, 122, 0.4);
+            }
         """)
         self.control_layout.addWidget(self.alert_label)
 
-        # Métriques avec icônes modernes
+        # Métriques avec effet néon
         self.metrics = {
             "blinks": QLabel("👁 Clignements: 0"),
             "microsleeps": QLabel("💤 Micro-sommeils: 0 s"),
@@ -196,55 +169,57 @@ class VigilanceCore(QMainWindow):
             "fps": QLabel("📈 FPS: 0")
         }
         for label in self.metrics.values():
-            label.setFont(QFont("Lato", 14))
+            label.setFont(QFont("Orbitron", 14))
             label.setStyleSheet("""
-                color: #FFFFFF;
-                padding: 10px;
-                background-color: rgba(70, 130, 180, 0.2);
-                border-radius: 8px;
-                margin: 5px 0;
-                box-shadow: 0 0 5px rgba(255, 255, 255, 0.1);
+                QLabel {
+                    color: #FFFFFF;
+                    padding: 12px;
+                    background: rgba(0, 123, 255, 0.1);
+                    border-radius: 10px;
+                    margin: 5px 0;
+                    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+                }
             """)
-            label.setMinimumHeight(45)
+            label.setMinimumHeight(50)
             self.control_layout.addWidget(label)
 
         self.control_layout.addStretch()
 
-        # Boutons élégants
+        # Boutons avec effet néon
         self.button_layout = QHBoxLayout()
         self.reset_button = QPushButton("Réinitialiser")
-        self.reset_button.setFont(QFont("Lato", 14, QFont.Bold))
+        self.reset_button.setFont(QFont("Orbitron", 14, QFont.Bold))
         self.reset_button.setStyleSheet("""
             QPushButton {
-                background-color: #4682B4;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #007BFF);
                 color: #FFFFFF;
-                padding: 10px;
-                border-radius: 8px;
+                padding: 12px;
+                border-radius: 10px;
                 border: none;
-                box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+                box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
             }
             QPushButton:hover {
-                background-color: #5A9BD4;
-                box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #007BFF, stop:1 #00D4FF);
+                box-shadow: 0 0 25px rgba(0, 212, 255, 0.8);
             }
         """)
         self.reset_button.clicked.connect(self.reset_stats)
         self.button_layout.addWidget(self.reset_button)
 
         self.quit_button = QPushButton("Arrêt")
-        self.quit_button.setFont(QFont("Lato", 14, QFont.Bold))
+        self.quit_button.setFont(QFont("Orbitron", 14, QFont.Bold))
         self.quit_button.setStyleSheet("""
             QPushButton {
-                background-color: #B22222;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF007A, stop:1 #FF00D4);
                 color: #FFFFFF;
-                padding: 10px;
-                border-radius: 8px;
+                padding: 12px;
+                border-radius: 10px;
                 border: none;
-                box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
             }
             QPushButton:hover {
-                background-color: #DC143C;
-                box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF00D4, stop:1 #FF007A);
+                box-shadow: 0 0 25px rgba(255, 0, 122, 0.8);
             }
         """)
         self.quit_button.clicked.connect(self.close)

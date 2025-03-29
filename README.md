@@ -32,6 +32,81 @@ L'objectif principal de ce projet IoT est de **détecter la somnolence et alerte
 
 ## Installation
 
+1. Cloner le dépôt :
+```bash
+git clone https://github.com/votre-username/Real_time_drowsy_driving_detection.git
+cd Real_time_drowsy_driving_detection
+```
+
+2. Créer un environnement virtuel et l'activer :
+```bash
+python -m venv venv
+source venv/bin/activate  # Sur Linux/Mac
+venv\Scripts\activate     # Sur Windows
+```
+
+3. Installer les dépendances :
+```bash
+pip install -r requirements.txt
+```
+
+## Fonctionnement du Programme
+
+Le programme de détection de somnolence fonctionne en temps réel avec les caractéristiques suivantes :
+
+### Détection en Temps Réel
+- Capture vidéo continue via la webcam
+- Traitement des images à 640x640 pixels
+- Performance optimisée :
+  - Prétraitement : ~7-8ms
+  - Inférence : ~190-200ms
+  - Post-traitement : ~1-2ms
+
+### Fonctionnalités Principales
+1. **Détection des Yeux**
+   - État des yeux (ouvert/fermé)
+   - Comptage des clignements
+   - Détection des micro-sommeils
+
+2. **Détection des Bâillements**
+   - Identification des bâillements
+   - Comptage des bâillements
+   - Alertes sonores pour les bâillements prolongés
+
+3. **Interface Utilisateur**
+   - Affichage vidéo en direct
+   - Barre de progression de la fatigue
+   - Indicateurs d'état en temps réel
+   - Statistiques de vigilance
+   - Boutons de contrôle (Démarrer/Arrêter/Réinitialiser)
+
+4. **Alertes et Notifications**
+   - Alertes visuelles pour la somnolence
+   - Alertes sonores pour les bâillements
+   - Indicateurs de niveau de fatigue
+   - Historique des détections
+
+### Utilisation
+1. Lancer le programme :
+```bash
+python DrowsinessDetector.py
+```
+
+2. Positionner votre visage devant la caméra
+3. Le programme détectera automatiquement :
+   - Les yeux ouverts/fermés
+   - Les bâillements
+   - Les signes de fatigue
+
+4. Les alertes se déclencheront en cas de :
+   - Yeux fermés prolongés
+   - Bâillements fréquents
+   - Niveau de fatigue élevé
+
+5. Les statistiques sont sauvegardées dans "vigilance_stats.txt" à la fermeture
+
+## Structure du Projet
+
 1. **Cloner le dépôt :**
     ```bash
     git clone https://github.com/ZouhairSA/Somnolence-detection-IOT.git
