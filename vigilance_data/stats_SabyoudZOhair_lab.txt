@@ -1,0 +1,5 @@
+Statistiques de la caméra SabyoudZOhair_lab
+==================================================
+
+Date		Clignements	Micro-sommeils	Bâillements	Durée bâillements	Niveau de fatigue
+----------------------------------------------------------------------------------------------------
