@@ -54,178 +54,7 @@ class VigilanceCore(QMainWindow):
         self.detecteye = YOLO("runs/detecteye/train/weights/best.pt")
         self.yolo_object = YOLO("yolov8n.pt")
 
-        # Configuration de la fenêtre principale
-        self.setWindowTitle("VigilanceGuard - Système de Détection de Somnolence")
-        self.setGeometry(100, 100, 1280, 720)
-        self.setStyleSheet("""
-            QMainWindow {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A0F23, stop:1 #1E2A44);
-                border: none;
-            }
-        """)
-
-        # Widget central et layout principal
-        self.central_widget = QWidget(self)
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(20, 20, 20, 20)
-        self.main_layout.setSpacing(20)
-
-        # Contenu principal avec effet verre dépoli
-        self.content_widget = QWidget()
-        self.content_layout = QHBoxLayout(self.content_widget)
-        self.content_layout.setSpacing(25)
-        self.main_layout.addWidget(self.content_widget, stretch=1)
-
-        # Zone vidéo avec bordure néon
-        self.video_label = QLabel(self)
-        self.video_label.setStyleSheet("""
-            QLabel {
-                border-radius: 20px;
-                background-color: rgba(14, 20, 35, 0.8);
-                border: 3px solid #00D4FF;
-                box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
-            }
-        """)
-        self.video_label.setMinimumSize(800, 500)
-        self.video_label.setScaledContents(True)
-        self.content_layout.addWidget(self.video_label, stretch=3)
-
-        # Panneau de contrôle avec effet verre dépoli
-        self.control_widget = QWidget()
-        self.control_layout = QVBoxLayout(self.control_widget)
-        self.control_widget.setStyleSheet("""
-            QWidget {
-                background: rgba(14, 20, 35, 0.7);
-                border-radius: 20px;
-                border: 2px solid #007BFF;
-                box-shadow: 0 0 15px rgba(0, 123, 255, 0.5);
-                padding: 20px;
-            }
-        """)
-        self.content_layout.addWidget(self.control_widget, stretch=1)
-
-        # Barre de fatigue avec dégradé néon
-        self.fatigue_bar = QProgressBar()
-        self.fatigue_bar.setRange(0, 100)
-        self.fatigue_bar.setValue(0)
-        self.fatigue_bar.setTextVisible(True)
-        self.fatigue_bar.setFormat("Fatigue: %p%")
-        self.fatigue_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 10px;
-                background: rgba(10, 15, 35, 0.8);
-                text-align: center;
-                color: #FFFFFF;
-                font-family: 'Orbitron';
-                font-size: 16px;
-                box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #FF007A);
-                border-radius: 10px;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
-            }
-        """)
-        self.control_layout.addWidget(self.fatigue_bar)
-
-        # Statut principal avec effet néon
-        self.status_label = QLabel("État: Optimal")
-        self.status_label.setFont(QFont("Orbitron", 20, QFont.Bold))
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #00D4FF;
-                text-align: center;
-                padding: 15px;
-                background: rgba(0, 212, 255, 0.2);
-                border-radius: 12px;
-                box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
-            }
-        """)
-        self.control_layout.addWidget(self.status_label)
-
-        # Alerte avec effet clignotant
-        self.alert_label = QLabel("")
-        self.alert_label.setFont(QFont("Orbitron", 18, QFont.Bold))
-        self.alert_label.setStyleSheet("""
-            QLabel {
-                color: #FF007A;
-                text-align: center;
-                padding: 12px;
-                background: rgba(255, 0, 122, 0.2);
-                border-radius: 12px;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.4);
-            }
-        """)
-        self.control_layout.addWidget(self.alert_label)
-
-        # Métriques avec effet néon
-        self.metrics = {
-            "blinks": QLabel("👁 Clignements: 0"),
-            "microsleeps": QLabel("💤 Micro-sommeils: 0 s"),
-            "yawns": QLabel("😴 Bâillements: 0"),
-            "yawn_duration": QLabel("⏲ Durée bâillements: 0 s"),
-            "fps": QLabel("📈 FPS: 0")
-        }
-        for label in self.metrics.values():
-            label.setFont(QFont("Orbitron", 14))
-            label.setStyleSheet("""
-                QLabel {
-                    color: #FFFFFF;
-                    padding: 12px;
-                    background: rgba(0, 123, 255, 0.1);
-                    border-radius: 10px;
-                    margin: 5px 0;
-                    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
-                }
-            """)
-            label.setMinimumHeight(50)
-            self.control_layout.addWidget(label)
-
-        self.control_layout.addStretch()
-
-        # Boutons avec effet néon
-        self.button_layout = QHBoxLayout()
-        self.reset_button = QPushButton("Réinitialiser")
-        self.reset_button.setFont(QFont("Orbitron", 14, QFont.Bold))
-        self.reset_button.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #007BFF);
-                color: #FFFFFF;
-                padding: 12px;
-                border-radius: 10px;
-                border: none;
-                box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #007BFF, stop:1 #00D4FF);
-                box-shadow: 0 0 25px rgba(0, 212, 255, 0.8);
-            }
-        """)
-        self.reset_button.clicked.connect(self.reset_stats)
-        self.button_layout.addWidget(self.reset_button)
-
-        self.quit_button = QPushButton("Arrêt")
-        self.quit_button.setFont(QFont("Orbitron", 14, QFont.Bold))
-        self.quit_button.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF007A, stop:1 #FF00D4);
-                color: #FFFFFF;
-                padding: 12px;
-                border-radius: 10px;
-                border: none;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF00D4, stop:1 #FF007A);
-                box-shadow: 0 0 25px rgba(255, 0, 122, 0.8);
-            }
-        """)
-        self.quit_button.clicked.connect(self.close)
-        self.button_layout.addWidget(self.quit_button)
-
-        self.control_layout.addLayout(self.button_layout)
+        self.setup_ui()
 
         # Capture vidéo
         self.cap = cv2.VideoCapture(0)
@@ -249,6 +78,91 @@ class VigilanceCore(QMainWindow):
         # Animation pour la barre de fatigue
         self.fatigue_animation = QPropertyAnimation(self.fatigue_bar, b"value")
         self.fatigue_animation.setEasingCurve(QEasingCurve.InOutQuad)
+
+    def calculate_fatigue_score(self):
+        """Calcule un score de fatigue plus sophistiqué basé sur plusieurs facteurs"""
+        try:
+            # Facteurs de base
+            blink_factor = min(1.0, self.blinks / 30)  # Normalisé pour 30 clignements
+            microsleep_factor = min(1.0, self.microsleeps / 3)  # Normalisé pour 3 secondes
+            yawn_factor = min(1.0, self.yawns / 5)  # Normalisé pour 5 bâillements
+            
+            # Facteurs temporels
+            current_time = time.time()
+            elapsed_time = current_time - self.start_time
+            time_factor = min(1.0, elapsed_time / 3600)  # Augmente sur une heure
+            
+            # Calcul du score composite
+            base_score = (blink_factor * 0.3 + 
+                        microsleep_factor * 0.4 + 
+                        yawn_factor * 0.3)
+            
+            # Ajustement temporel
+            fatigue_score = base_score * (1 + time_factor * 0.2)
+            
+            # Normalisation finale
+            return min(100, int(fatigue_score * 100))
+            
+        except Exception as e:
+            print(f"Erreur lors du calcul du score de fatigue: {e}")
+            return self.fatigue_level  # Retourne le dernier niveau connu
+
+    def update_drowsiness_state(self):
+        """Mise à jour optimisée de l'état de somnolence avec détection améliorée"""
+        try:
+            # Détection des clignements
+            if self.left_eye_state == "Close Eye" and self.right_eye_state == "Close Eye":
+                if not self.left_eye_still_closed and not self.right_eye_still_closed:
+                    self.blinks += 1
+                    # Analyse du rythme des clignements
+                    current_time = time.time()
+                    if hasattr(self, 'last_blink_time'):
+                        blink_interval = current_time - self.last_blink_time
+                        if blink_interval < 0.5:  # Clignements rapides
+                            self.microsleeps += 0.2
+                    self.last_blink_time = current_time
+                    
+                    self.left_eye_still_closed = True
+                    self.right_eye_still_closed = True
+                
+                # Détection des micro-sommeils
+                if not hasattr(self, 'eyes_closed_start'):
+                    self.eyes_closed_start = time.time()
+                else:
+                    closed_duration = time.time() - self.eyes_closed_start
+                    if closed_duration > 0.5:  # Micro-sommeil détecté
+                        self.microsleeps += closed_duration / 30
+            else:
+                if self.left_eye_still_closed and self.right_eye_still_closed:
+                    self.left_eye_still_closed = False
+                    self.right_eye_still_closed = False
+                if hasattr(self, 'eyes_closed_start'):
+                    delattr(self, 'eyes_closed_start')
+                self.microsleeps = max(0, self.microsleeps - 1/60)  # Décroissance progressive
+
+            # Détection des bâillements
+            if self.yawn_state == "Yawn":
+                if not self.yawn_in_progress:
+                    self.yawn_in_progress = True
+                    self.yawns += 1
+                    # Analyse du rythme des bâillements
+                    current_time = time.time()
+                    if hasattr(self, 'last_yawn_time'):
+                        yawn_interval = current_time - self.last_yawn_time
+                        if yawn_interval < 60:  # Bâillements fréquents
+                            self.fatigue_level += 5
+                    self.last_yawn_time = current_time
+                self.yawn_duration += 1/30
+            else:
+                if self.yawn_in_progress:
+                    self.yawn_in_progress = False
+                self.yawn_duration = max(0, self.yawn_duration - 1/60)
+
+            # Mise à jour du niveau de fatigue
+            self.fatigue_level = self.calculate_fatigue_score()
+
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour de l'état de somnolence: {e}")
 
     def update_stats(self):
         new_fatigue_level = min(100, int((self.microsleeps + self.yawn_duration) * 10))
@@ -433,14 +347,76 @@ class VigilanceCore(QMainWindow):
             print(f"Erreur lors de la détection d'objets: {e}")
             return frame, []
 
+    def setup_camera(self):
+        """Configure et initialise la caméra avec gestion des erreurs et reconnexion"""
+        try:
+            if hasattr(self, 'cap') and self.cap is not None:
+                self.cap.release()
+            
+            self.cap = cv2.VideoCapture(0)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 1)  # Active l'autofocus
+            
+            if not self.cap.isOpened():
+                raise RuntimeError("Impossible d'ouvrir la caméra")
+                
+            return True
+            
+        except Exception as e:
+            print(f"Erreur lors de l'initialisation de la caméra: {e}")
+            return False
+            
+    def reconnect_camera(self):
+        """Tente de reconnecter la caméra en cas de perte de connexion"""
+        max_attempts = 5
+        attempt = 0
+        
+        while attempt < max_attempts:
+            print(f"Tentative de reconnexion de la caméra ({attempt + 1}/{max_attempts})...")
+            if self.setup_camera():
+                print("Caméra reconnectée avec succès!")
+                return True
+            attempt += 1
+            time.sleep(2)
+            
+        print("Impossible de reconnecter la caméra après plusieurs tentatives")
+        return False
+
     def capture_frames(self):
+        """Capture les frames avec gestion des erreurs et reconnexion automatique"""
+        consecutive_errors = 0
+        max_errors = 5
+        
         while not self.stop_event.is_set():
-            ret, frame = self.cap.read()
-            if ret:
-                if self.frame_queue.qsize() < 2:
-                    self.frame_queue.put(frame)
-            else:
-                break
+            try:
+                if not self.cap.isOpened():
+                    if not self.reconnect_camera():
+                        break
+                        
+                ret, frame = self.cap.read()
+                if ret:
+                    if self.frame_queue.qsize() < 3:
+                        self.frame_queue.put(frame)
+                    consecutive_errors = 0
+                else:
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_errors:
+                        if not self.reconnect_camera():
+                            break
+                        consecutive_errors = 0
+                        
+            except Exception as e:
+                print(f"Erreur lors de la capture: {e}")
+                consecutive_errors += 1
+                if consecutive_errors >= max_errors:
+                    if not self.reconnect_camera():
+                        break
+                    consecutive_errors = 0
+                    
+        print("Arrêt de la capture des frames")
 
     def process_frames(self):
         while not self.stop_event.is_set():
@@ -540,30 +516,7 @@ class VigilanceCore(QMainWindow):
                                     cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 0, 0), 1)
                         
                         # Mise à jour des états et des compteurs
-                        if self.left_eye_state == "Close Eye" and self.right_eye_state == "Close Eye":
-                            if not self.left_eye_still_closed and not self.right_eye_still_closed:
-                                self.left_eye_still_closed = True
-                                self.right_eye_still_closed = True
-                                self.blinks += 1
-                            self.microsleeps += 45 / 1000
-                        else:
-                            if self.left_eye_still_closed and self.right_eye_still_closed:
-                                self.left_eye_still_closed = False
-                                self.right_eye_still_closed = False
-                            self.microsleeps = 0
-
-                        if self.yawn_state == "Yawn":
-                            if not self.yawn_in_progress:
-                                self.yawn_in_progress = True
-                                self.yawns += 1
-                            self.yawn_duration += 45 / 1000
-                        else:
-                            if self.yawn_in_progress:
-                                self.yawn_in_progress = False
-                                self.yawn_duration = 0
-
-                        # Mise à jour des statistiques
-                        self.update_stats()
+                        self.update_drowsiness_state()
                         
                         # Affichage des informations de débogage
                         self.display_debug_info(frame, [self.left_eye_state, self.right_eye_state], self.yawn_state, detected_objects)
@@ -653,6 +606,287 @@ class VigilanceCore(QMainWindow):
             
         except Exception as e:
             print(f"Erreur lors de l'affichage des informations de débogage: {e}")
+
+    def update_ui(self, frame):
+        """Met à jour l'interface utilisateur"""
+        try:
+            # Conversion de l'image pour Qt
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            self.video_label.setPixmap(pixmap.scaled(
+                self.video_label.size(),
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            ))
+            
+            # Mise à jour de la barre de fatigue
+            self.fatigue_bar.setValue(self.fatigue_level)
+            
+            # Mise à jour des statistiques
+            self.metrics["blinks"].setText(f"👁 Clignements: {self.blinks}")
+            self.metrics["microsleeps"].setText(f"💤 Micro-sommeils: {round(self.microsleeps, 2)} s")
+            self.metrics["yawns"].setText(f"😴 Bâillements: {self.yawns}")
+            self.metrics["yawn_duration"].setText(f"⏲ Durée bâillements: {round(self.yawn_duration, 2)} s")
+            self.metrics["fps"].setText(f"📈 FPS: {round(self.fps, 1)}")
+            
+            # Mise à jour du statut
+            if self.fatigue_level > 70:
+                self.status_label.setText("État: DANGER - Fatigue élevée")
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        color: #ff0000;
+                        font-weight: bold;
+                        font-size: 18px;
+                        padding: 10px;
+                        background-color: rgba(255, 0, 0, 0.1);
+                        border: 2px solid #ff0000;
+                        border-radius: 10px;
+                    }
+                """)
+                if not self.alert_timer.isActive():
+                    self.alert_timer.start(500)
+            else:
+                self.status_label.setText("État: Optimal")
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        color: #00ff00;
+                        font-weight: bold;
+                        font-size: 18px;
+                        padding: 10px;
+                        background-color: rgba(0, 255, 0, 0.1);
+                        border: 2px solid #00ff00;
+                        border-radius: 10px;
+                    }
+                """)
+                if self.alert_timer.isActive():
+                    self.alert_timer.stop()
+                    
+            # Forcer la mise à jour de l'interface
+            self.video_label.update()
+            self.fatigue_bar.update()
+            self.status_label.update()
+            self.alert_label.update()
+            for label in self.metrics.values():
+                label.update()
+            
+            # Traiter les événements Qt en attente
+            QApplication.processEvents()
+                    
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour de l'interface: {e}")
+
+    def setup_ui(self):
+        """Configuration améliorée de l'interface utilisateur"""
+        # Configuration de la fenêtre principale
+        self.setWindowTitle("VigilanceGuard Pro")
+        self.setGeometry(100, 100, 1280, 800)
+        
+        # Widget central et layout principal
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        
+        # Panneau vidéo (gauche)
+        video_panel = QWidget()
+        video_layout = QVBoxLayout(video_panel)
+        
+        # Zone vidéo avec bordure néon
+        self.video_label = QLabel()
+        self.video_label.setMinimumSize(800, 600)
+        self.video_label.setStyleSheet("""
+            QLabel {
+                border: 3px solid #00D4FF;
+                border-radius: 15px;
+                background-color: rgba(14, 20, 35, 0.8);
+                padding: 5px;
+            }
+        """)
+        video_layout.addWidget(self.video_label)
+        
+        # Barre de statut vidéo
+        self.video_status = QLabel("Caméra active")
+        self.video_status.setStyleSheet("""
+            QLabel {
+                color: #00FF00;
+                font-size: 14px;
+                padding: 5px;
+            }
+        """)
+        video_layout.addWidget(self.video_status)
+        
+        main_layout.addWidget(video_panel, stretch=2)
+        
+        # Panneau de contrôle (droite)
+        control_panel = QWidget()
+        control_layout = QVBoxLayout(control_panel)
+        control_panel.setStyleSheet("""
+            QWidget {
+                background: rgba(14, 20, 35, 0.9);
+                border-radius: 15px;
+                border: 2px solid #007BFF;
+            }
+        """)
+        
+        # Titre du panneau
+        title_label = QLabel("Tableau de bord")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #00D4FF;
+                font-size: 24px;
+                font-weight: bold;
+                padding: 10px;
+                border-bottom: 2px solid #007BFF;
+            }
+        """)
+        control_layout.addWidget(title_label)
+        
+        # Barre de fatigue
+        fatigue_widget = QWidget()
+        fatigue_layout = QVBoxLayout(fatigue_widget)
+        
+        fatigue_title = QLabel("Niveau de fatigue")
+        fatigue_title.setStyleSheet("color: white; font-size: 18px;")
+        fatigue_layout.addWidget(fatigue_title)
+        
+        self.fatigue_bar = QProgressBar()
+        self.fatigue_bar.setRange(0, 100)
+        self.fatigue_bar.setTextVisible(True)
+        self.fatigue_bar.setFormat("Fatigue: %p%")
+        self.fatigue_bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 10px;
+                background: rgba(10, 15, 35, 0.8);
+                text-align: center;
+                color: white;
+                font-size: 16px;
+                height: 25px;
+            }
+            QProgressBar::chunk {
+                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00D4FF,
+                    stop:0.5 #FF7F00,
+                    stop:1 #FF0000);
+            }
+        """)
+        fatigue_layout.addWidget(self.fatigue_bar)
+        control_layout.addWidget(fatigue_widget)
+        
+        # Statut et alertes
+        self.status_label = QLabel("État: Optimal")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                color: #00FF00;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 15px;
+                border-radius: 10px;
+                background: rgba(0, 255, 0, 0.1);
+                margin: 10px;
+            }
+        """)
+        control_layout.addWidget(self.status_label)
+        
+        self.alert_label = QLabel("")
+        self.alert_label.setStyleSheet("""
+            QLabel {
+                color: #FF0000;
+                font-size: 18px;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 10px;
+                background: rgba(255, 0, 0, 0.1);
+                margin: 10px;
+            }
+        """)
+        control_layout.addWidget(self.alert_label)
+        
+        # Métriques
+        metrics_widget = QWidget()
+        metrics_layout = QVBoxLayout(metrics_widget)
+        metrics_widget.setStyleSheet("""
+            QWidget {
+                background: rgba(14, 20, 35, 0.5);
+                border-radius: 10px;
+                margin: 10px;
+            }
+        """)
+        
+        self.metrics = {
+            "blinks": QLabel("👁 Clignements: 0"),
+            "microsleeps": QLabel("💤 Micro-sommeils: 0.0 s"),
+            "yawns": QLabel("😴 Bâillements: 0"),
+            "yawn_duration": QLabel("⏲ Durée bâillements: 0.0 s"),
+            "fps": QLabel("📈 FPS: 0")
+        }
+        
+        for label in self.metrics.values():
+            label.setStyleSheet("""
+                QLabel {
+                    color: white;
+                    font-size: 16px;
+                    padding: 10px;
+                    border-radius: 8px;
+                    background: rgba(0, 123, 255, 0.1);
+                    margin: 5px;
+                }
+            """)
+            metrics_layout.addWidget(label)
+        
+        control_layout.addWidget(metrics_widget)
+        
+        # Boutons de contrôle
+        button_widget = QWidget()
+        button_layout = QHBoxLayout(button_widget)
+        
+        self.reset_button = QPushButton("Réinitialiser")
+        self.reset_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00D4FF, stop:1 #007BFF);
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #007BFF, stop:1 #00D4FF);
+            }
+        """)
+        self.reset_button.clicked.connect(self.reset_stats)
+        button_layout.addWidget(self.reset_button)
+        
+        self.quit_button = QPushButton("Quitter")
+        self.quit_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #FF007A, stop:1 #FF00D4);
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #FF00D4, stop:1 #FF007A);
+            }
+        """)
+        self.quit_button.clicked.connect(self.close)
+        button_layout.addWidget(self.quit_button)
+        
+        control_layout.addWidget(button_widget)
+        
+        # Ajout du panneau de contrôle au layout principal
+        main_layout.addWidget(control_panel, stretch=1)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
