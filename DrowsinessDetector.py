@@ -55,7 +55,7 @@ class VigilanceCore(QMainWindow):
         self.yolo_object = YOLO("yolov8n.pt")
 
         # Configuration de la fenêtre principale
-        self.setWindowTitle("Détection de Somnolence")
+        self.setWindowTitle("VigilanceGuard - Système de Détection de Somnolence")
         self.setGeometry(100, 100, 1280, 720)
         self.setStyleSheet("""
             QMainWindow {
@@ -404,22 +404,34 @@ class VigilanceCore(QMainWindow):
 
     def detect_objects(self, frame):
         """Détection des objets (personnes, animaux, etc.) avec YOLOv8"""
-        results = self.yolo_object.predict(frame, conf=0.5)  # Seuil de confiance à 0.5
-        boxes = results[0].boxes
+        try:
+            results = self.yolo_object.predict(frame, conf=0.5, classes=[0, 2, 3, 5, 7])  # Person, car, motorcycle, bus, truck
+            boxes = results[0].boxes
 
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
-            confidence = box.conf.cpu().numpy()[0]
-            class_id = int(box.cls.cpu().numpy()[0])
-            label = self.yolo_object.names[class_id]
+            detected_objects = []
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                confidence = box.conf.cpu().numpy()[0]
+                class_id = int(box.cls.cpu().numpy()[0])
+                label = self.yolo_object.names[class_id]
 
-            # Dessiner un rectangle autour de l'objet détecté
-            color = (0, 255, 0) if label == "person" else (255, 0, 0)  # Vert pour personne, rouge pour autres
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, f"{label} {confidence:.2f}", (x1, y1 - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                # Ajouter l'objet détecté à la liste
+                detected_objects.append({
+                    'label': label,
+                    'confidence': confidence,
+                    'bbox': (x1, y1, x2, y2)
+                })
 
-        return frame
+                # Dessiner un rectangle autour de l'objet détecté
+                color = (0, 255, 0) if label == "person" else (255, 0, 0)  # Vert pour personne, rouge pour autres
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f"{label} {confidence:.2f}", (x1, y1 - 10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            return frame, detected_objects
+        except Exception as e:
+            print(f"Erreur lors de la détection d'objets: {e}")
+            return frame, []
 
     def capture_frames(self):
         while not self.stop_event.is_set():
@@ -436,6 +448,9 @@ class VigilanceCore(QMainWindow):
                 frame = self.frame_queue.get(timeout=1)
                 image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self.face_mesh.process(image_rgb)
+
+                # Détection des objets
+                frame, detected_objects = self.detect_objects(frame)
 
                 if results.multi_face_landmarks:
                     for face_landmarks in results.multi_face_landmarks:
@@ -551,7 +566,7 @@ class VigilanceCore(QMainWindow):
                         self.update_stats()
                         
                         # Affichage des informations de débogage
-                        self.display_debug_info(frame, [self.left_eye_state, self.right_eye_state], self.yawn_state)
+                        self.display_debug_info(frame, [self.left_eye_state, self.right_eye_state], self.yawn_state, detected_objects)
                         
                         # Affichage de la frame
                         self.display_frame(frame)
@@ -594,7 +609,7 @@ class VigilanceCore(QMainWindow):
         self.cap.release()
         event.accept()
 
-    def display_debug_info(self, frame, eye_states, yawn_state):
+    def display_debug_info(self, frame, eye_states, yawn_state, detected_objects):
         """Affiche les informations de débogage sur la frame"""
         try:
             # Informations sur les yeux
@@ -623,6 +638,18 @@ class VigilanceCore(QMainWindow):
             # FPS
             cv2.putText(frame, f"FPS: {round(self.fps, 1)}", (10, 240),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+            # Informations sur les objets détectés
+            y_offset = 270
+            cv2.putText(frame, "Objects Detected:", (10, y_offset),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            y_offset += 30
+            
+            for obj in detected_objects:
+                text = f"{obj['label']}: {obj['confidence']:.2f}"
+                cv2.putText(frame, text, (10, y_offset),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                y_offset += 30
             
         except Exception as e:
             print(f"Erreur lors de l'affichage des informations de débogage: {e}")
