@@ -7,9 +7,15 @@ import numpy as np
 from ultralytics import YOLO
 import mediapipe as mp
 import sys
+import pandas as pd
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
 from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve
+from datetime import datetime
+import logging
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.chart import LineChart, Reference
 
 class VigilanceCore(QMainWindow):
     def __init__(self):
@@ -54,6 +60,8 @@ class VigilanceCore(QMainWindow):
         self.detecteye = YOLO("runs/detecteye/train/weights/best.pt")
         self.yolo_object = YOLO("yolov8n.pt")
 
+        # Initialisation du layout principal
+        self.main_layout = QHBoxLayout()
         self.setup_ui()
 
         # Capture vidéo
@@ -78,6 +86,32 @@ class VigilanceCore(QMainWindow):
         # Animation pour la barre de fatigue
         self.fatigue_animation = QPropertyAnimation(self.fatigue_bar, b"value")
         self.fatigue_animation.setEasingCurve(QEasingCurve.InOutQuad)
+
+        # Ajout des timestamps pour les événements
+        self.event_timestamps = {
+            'blinks': [],
+            'microsleeps': [],
+            'yawns': [],
+            'alerts': []
+        }
+
+        # Initialisation du DataFrame pour Excel
+        self.data_for_excel = {
+            'timestamp': [],
+            'event_type': [],
+            'value': [],
+            'fatigue_level': [],
+            'person_count': [],
+            'fps': []
+        }
+        self.current_person_count = 0
+
+        # Initialisation des compteurs
+        self.blink_count = 0
+        self.yawn_count = 0
+        self.microsleep_count = 0
+        self.last_export_time = time.time()
+        self.export_interval = 60  # Export toutes les 60 secondes
 
     def calculate_fatigue_score(self):
         """Calcule un score de fatigue plus sophistiqué basé sur plusieurs facteurs"""
@@ -110,16 +144,22 @@ class VigilanceCore(QMainWindow):
     def update_drowsiness_state(self):
         """Mise à jour optimisée de l'état de somnolence avec détection améliorée"""
         try:
+            current_time = datetime.now()
+            
             # Détection des clignements
             if self.left_eye_state == "Close Eye" and self.right_eye_state == "Close Eye":
                 if not self.left_eye_still_closed and not self.right_eye_still_closed:
                     self.blinks += 1
+                    self.event_timestamps['blinks'].append(current_time)
+                    self.update_excel_data('Clignement', 1)
+                    
                     # Analyse du rythme des clignements
-                    current_time = time.time()
                     if hasattr(self, 'last_blink_time'):
-                        blink_interval = current_time - self.last_blink_time
+                        blink_interval = (current_time - self.last_blink_time).total_seconds()
                         if blink_interval < 0.5:  # Clignements rapides
                             self.microsleeps += 0.2
+                            self.event_timestamps['microsleeps'].append(current_time)
+                            self.update_excel_data('Micro-sommeil', 0.2)
                     self.last_blink_time = current_time
                     
                     self.left_eye_still_closed = True
@@ -127,11 +167,14 @@ class VigilanceCore(QMainWindow):
                 
                 # Détection des micro-sommeils
                 if not hasattr(self, 'eyes_closed_start'):
-                    self.eyes_closed_start = time.time()
+                    self.eyes_closed_start = current_time
                 else:
-                    closed_duration = time.time() - self.eyes_closed_start
+                    closed_duration = (current_time - self.eyes_closed_start).total_seconds()
                     if closed_duration > 0.5:  # Micro-sommeil détecté
                         self.microsleeps += closed_duration / 30
+                        self.event_timestamps['microsleeps'].append(current_time)
+                        self.update_excel_data('Micro-sommeil', closed_duration)
+
             else:
                 if self.left_eye_still_closed and self.right_eye_still_closed:
                     self.left_eye_still_closed = False
@@ -145,10 +188,12 @@ class VigilanceCore(QMainWindow):
                 if not self.yawn_in_progress:
                     self.yawn_in_progress = True
                     self.yawns += 1
+                    self.event_timestamps['yawns'].append(current_time)
+                    self.update_excel_data('Bâillement', 1)
+                    
                     # Analyse du rythme des bâillements
-                    current_time = time.time()
                     if hasattr(self, 'last_yawn_time'):
-                        yawn_interval = current_time - self.last_yawn_time
+                        yawn_interval = (current_time - self.last_yawn_time).total_seconds()
                         if yawn_interval < 60:  # Bâillements fréquents
                             self.fatigue_level += 5
                     self.last_yawn_time = current_time
@@ -173,6 +218,8 @@ class VigilanceCore(QMainWindow):
             self.fatigue_animation.start()
         self.fatigue_level = new_fatigue_level
 
+        current_time = datetime.now()
+        
         if round(self.yawn_duration, 2) > 0.5:
             self.alert_text = "⚠ Alerte: Bâillement prolongé"
             self.status_label.setText("État: Attention")
@@ -188,6 +235,7 @@ class VigilanceCore(QMainWindow):
             """)
             self.alert_timer.start(400)
             self.play_sound_in_thread()
+            self.event_timestamps['alerts'].append((current_time, "Bâillement prolongé"))
 
         elif round(self.microsleeps, 2) > 0.5:
             self.alert_text = "⚠ Alerte: Micro-sommeil détecté"
@@ -204,6 +252,7 @@ class VigilanceCore(QMainWindow):
             """)
             self.alert_timer.start(400)
             self.play_sound_in_thread()
+            self.event_timestamps['alerts'].append((current_time, "Micro-sommeil"))
 
         else:
             self.alert_text = ""
@@ -251,11 +300,18 @@ class VigilanceCore(QMainWindow):
         """)
 
     def reset_stats(self):
+        """Réinitialisation des statistiques avec les timestamps"""
         self.blinks = 0
         self.microsleeps = 0
         self.yawns = 0
         self.yawn_duration = 0
         self.fatigue_level = 0
+        self.event_timestamps = {
+            'blinks': [],
+            'microsleeps': [],
+            'yawns': [],
+            'alerts': []
+        }
         self.update_stats()
 
     def predict_eye(self, eye_frame, eye_state):
@@ -425,8 +481,12 @@ class VigilanceCore(QMainWindow):
                 image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = self.face_mesh.process(image_rgb)
 
-                # Détection des objets
+                # Détection des objets et mise à jour du compteur de personnes
                 frame, detected_objects = self.detect_objects(frame)
+                person_count = sum(1 for obj in detected_objects if obj['label'] == 'person')
+                self.current_person_count = person_count
+                self.update_person_counter(person_count)
+                self.update_excel_data('person_count', person_count)
 
                 if results.multi_face_landmarks:
                     for face_landmarks in results.multi_face_landmarks:
@@ -552,15 +612,26 @@ class VigilanceCore(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        with open("vigilance_stats.txt", "w") as f:
-            f.write(f"Clignements: {self.blinks}\n")
-            f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
-            f.write(f"Bâillements: {self.yawns}\n")
-            f.write(f"Durée bâillements: {round(self.yawn_duration, 2)} s\n")
-            f.write(f"Niveau de fatigue: {self.fatigue_level}%\n")
-        self.stop_event.set()
-        self.cap.release()
-        event.accept()
+        """Gestion de la fermeture de l'application"""
+        try:
+            # Export final des données
+            self.export_to_excel()
+            
+            # Arrêt des threads et timers
+            self.stop_threads()
+            self.stop_timers()
+            
+            # Fermeture de la caméra
+            if hasattr(self, 'cap') and self.cap is not None:
+                self.cap.release()
+            
+            # Fermeture des fichiers de log
+            logging.shutdown()
+            
+            event.accept()
+        except Exception as e:
+            logging.error(f"Erreur lors de la fermeture: {str(e)}")
+            event.accept()
 
     def display_debug_info(self, frame, eye_states, yawn_state, detected_objects):
         """Affiche les informations de débogage sur la frame"""
@@ -687,7 +758,7 @@ class VigilanceCore(QMainWindow):
         # Widget central et layout principal
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        self.main_layout = QHBoxLayout(central_widget)
         
         # Panneau vidéo (gauche)
         video_panel = QWidget()
@@ -705,6 +776,31 @@ class VigilanceCore(QMainWindow):
             }
         """)
         video_layout.addWidget(self.video_label)
+
+        # Ajout du compteur de personnes
+        self.person_counter = QLabel("👥 Personnes détectées: 0")
+        self.person_counter.setStyleSheet("""
+            QLabel {
+                color: #FFFFFF;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 10px;
+                background-color: rgba(70, 130, 180, 0.3);
+                border-radius: 10px;
+                border: 2px solid #4682B4;
+            }
+        """)
+        self.person_counter.setAlignment(Qt.AlignCenter)
+        self.person_counter.setMinimumHeight(50)
+        self.person_counter.setMinimumWidth(300)
+        
+        # Ajout d'un effet de pulsation pour le compteur
+        self.person_counter_animation = QPropertyAnimation(self.person_counter, b"styleSheet")
+        self.person_counter_animation.setDuration(500)
+        self.person_counter_animation.setEasingCurve(QEasingCurve.InOutQuad)
+        
+        video_layout.addWidget(self.person_counter)
+        video_layout.addSpacing(10)
         
         # Barre de statut vidéo
         self.video_status = QLabel("Caméra active")
@@ -717,7 +813,7 @@ class VigilanceCore(QMainWindow):
         """)
         video_layout.addWidget(self.video_status)
         
-        main_layout.addWidget(video_panel, stretch=2)
+        self.main_layout.addWidget(video_panel, stretch=2)
         
         # Panneau de contrôle (droite)
         control_panel = QWidget()
@@ -886,7 +982,218 @@ class VigilanceCore(QMainWindow):
         control_layout.addWidget(button_widget)
         
         # Ajout du panneau de contrôle au layout principal
-        main_layout.addWidget(control_panel, stretch=1)
+        self.main_layout.addWidget(control_panel, stretch=1)
+
+    def update_person_counter(self, count):
+        """Mise à jour du compteur de personnes avec animation"""
+        try:
+            # Animation de pulsation
+            self.person_counter_animation.setStartValue("""
+                QLabel {
+                    color: #FFFFFF;
+                    font-size: 20px;
+                    font-weight: bold;
+                    padding: 10px;
+                    background-color: rgba(70, 130, 180, 0.3);
+                    border-radius: 10px;
+                    border: 2px solid #4682B4;
+                }
+            """)
+            self.person_counter_animation.setEndValue("""
+                QLabel {
+                    color: #FFFFFF;
+                    font-size: 22px;
+                    font-weight: bold;
+                    padding: 10px;
+                    background-color: rgba(70, 130, 180, 0.5);
+                    border-radius: 10px;
+                    border: 2px solid #4682B4;
+                }
+            """)
+            self.person_counter_animation.start()
+
+            # Mise à jour du texte avec des emojis différents selon le nombre
+            if count == 0:
+                emoji = "👤"
+            elif count == 1:
+                emoji = "👥"
+            elif count == 2:
+                emoji = "👥👥"
+            else:
+                emoji = "👥👥👥"
+
+            self.person_counter.setText(f"{emoji} Personnes détectées: {count}")
+            
+            # Changement de couleur selon le nombre de personnes
+            if count > 1:
+                self.person_counter.setStyleSheet("""
+                    QLabel {
+                        color: #FFFFFF;
+                        font-size: 20px;
+                        font-weight: bold;
+                        padding: 10px;
+                        background-color: rgba(255, 165, 0, 0.3);
+                        border-radius: 10px;
+                        border: 2px solid #FFA500;
+                    }
+                """)
+            else:
+                self.person_counter.setStyleSheet("""
+                    QLabel {
+                        color: #FFFFFF;
+                        font-size: 20px;
+                        font-weight: bold;
+                        padding: 10px;
+                        background-color: rgba(70, 130, 180, 0.3);
+                        border-radius: 10px;
+                        border: 2px solid #4682B4;
+                    }
+                """)
+
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour du compteur de personnes: {e}")
+
+    def update_excel_data(self, event_type, value):
+        """Mise à jour des données pour Excel avec plus d'informations"""
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.data_for_excel['timestamp'].append(current_time)
+            self.data_for_excel['event_type'].append(event_type)
+            self.data_for_excel['value'].append(value)
+            self.data_for_excel['fatigue_level'].append(self.fatigue_level)
+            self.data_for_excel['person_count'].append(self.current_person_count)
+            self.data_for_excel['fps'].append(round(self.fps, 1))
+            
+            # Ajout d'informations contextuelles
+            if event_type == 'Blink':
+                self.blink_count += 1
+            elif event_type == 'Yawn':
+                self.yawn_count += 1
+            elif event_type == 'Microsleep':
+                self.microsleep_count += 1
+            
+            # Export périodique des données
+            if time.time() - self.last_export_time >= self.export_interval:
+                self.export_to_excel()
+                self.last_export_time = time.time()
+                
+        except Exception as e:
+            logging.error(f"Erreur lors de la mise à jour des données Excel: {str(e)}")
+
+    def export_to_excel(self):
+        """Export des données vers un fichier Excel avec mise en forme avancée"""
+        try:
+            # Création du DataFrame
+            df = pd.DataFrame(self.data_for_excel)
+            
+            # Nom du fichier avec timestamp
+            filename = f"drowsiness_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            
+            # Création du writer Excel
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                # Feuille des événements
+                df.to_excel(writer, sheet_name='Events', index=False)
+                
+                # Feuille de résumé
+                summary_data = {
+                    'Metric': [
+                        'Total Blinks',
+                        'Total Yawns',
+                        'Total Microsleeps',
+                        'Average Fatigue Level',
+                        'Average Person Count',
+                        'Average FPS',
+                        'Session Duration',
+                        'Max Fatigue Level',
+                        'Min Fatigue Level',
+                        'Fatigue Alerts'
+                    ],
+                    'Value': [
+                        self.blink_count,
+                        self.yawn_count,
+                        self.microsleep_count,
+                        df['fatigue_level'].mean(),
+                        df['person_count'].mean(),
+                        df['fps'].mean(),
+                        f"{(datetime.now() - pd.to_datetime(df['timestamp'].iloc[0])).total_seconds()/60:.1f} minutes",
+                        df['fatigue_level'].max(),
+                        df['fatigue_level'].min(),
+                        len(df[df['fatigue_level'] > 70])
+                    ]
+                }
+                pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+                
+                # Feuille d'analyse temporelle
+                df['timestamp'] = pd.to_datetime(df['timestamp'])
+                df['hour'] = df['timestamp'].dt.hour
+                hourly_stats = df.groupby('hour').agg({
+                    'fatigue_level': ['mean', 'max', 'min'],
+                    'person_count': 'mean',
+                    'fps': 'mean'
+                }).round(2)
+                hourly_stats.to_excel(writer, sheet_name='Hourly Analysis')
+                
+                # Mise en forme
+                for sheet_name in writer.sheets:
+                    sheet = writer.sheets[sheet_name]
+                    
+                    # Style des en-têtes
+                    header_fill = PatternFill(start_color='4F81BD', end_color='4F81BD', fill_type='solid')
+                    header_font = Font(bold=True, color='FFFFFF')
+                    header_alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Style des cellules
+                    cell_border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    
+                    # Application des styles
+                    for row in sheet.iter_rows(min_row=1, max_row=1):
+                        for cell in row:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                            cell.alignment = header_alignment
+                            cell.border = cell_border
+                    
+                    # Ajustement de la largeur des colonnes
+                    for column in sheet.columns:
+                        max_length = 0
+                        column = [cell for cell in column]
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = (max_length + 2)
+                        sheet.column_dimensions[column[0].column_letter].width = adjusted_width
+                    
+                    # Ajout de filtres automatiques
+                    sheet.auto_filter.ref = sheet.dimensions
+                
+                # Ajout de graphiques dans la feuille Summary
+                if len(df) > 0:
+                    # Création d'un graphique de l'évolution de la fatigue
+                    chart = LineChart()
+                    chart.title = "Évolution du niveau de fatigue"
+                    chart.style = 13
+                    chart.y_axis.title = "Niveau de fatigue"
+                    chart.x_axis.title = "Temps"
+                    
+                    data = Reference(writer.sheets['Events'], 
+                                   min_col=4, max_col=4,
+                                   min_row=1, max_row=len(df)+1)
+                    chart.add_data(data, titles_from_data=True)
+                    
+                    writer.sheets['Summary'].add_chart(chart, "D2")
+            
+            logging.info(f"Données exportées avec succès vers {filename}")
+            
+        except Exception as e:
+            logging.error(f"Erreur lors de l'export Excel: {str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
