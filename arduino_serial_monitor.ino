@@ -7,7 +7,7 @@ void loop() {
   if (Serial.available()) {
     char data = Serial.read();
     if (data == 'S') {
-      Serial.println("⚠️ Somnolence détectée !");
+      Serial.println("⚠️ Somnolence détectée!");
     } else if (data == 'A') {
       Serial.println("✅ Conducteur attentif.");
     }
