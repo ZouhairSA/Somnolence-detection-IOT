@@ -9,8 +9,12 @@ import mediapipe as mp
 import sys
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
-from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal, QObject
 import serial
+
+class SignalEmitter(QObject):
+    update_ui = pyqtSignal(dict)
+    update_frame = pyqtSignal(np.ndarray)
 
 class VigilanceCore(QMainWindow):
     def __init__(self, use_arduino=False, arduino=None):
@@ -41,6 +45,31 @@ class VigilanceCore(QMainWindow):
         self.YAWN_THRESH = 0.5  # Seuil pour la détection des bâillements
         self.YAWN_CONSEC_FRAMES = 3  # Nombre de frames consécutives pour confirmer
 
+        # Nouveaux paramètres de calibration
+        self.calibration_mode = False
+        self.calibration_samples = []
+        self.eye_ar_thresholds = {'left': 0.25, 'right': 0.25}
+        self.yawn_thresholds = {'normal': 0.5, 'talking': 0.7}
+        self.adaptive_thresholds = True
+
+        # Système de validation des détections
+        self.validation_window = 5  # Nombre de frames pour valider une détection
+        self.detection_history = {
+            'left_eye': [],
+            'right_eye': [],
+            'yawn': []
+        }
+
+        # Amélioration de la détection des micro-sommeils
+        self.microsleep_threshold = 0.8  # Seuil pour les micro-sommeils
+        self.microsleep_duration = 0.5  # Durée minimale en secondes
+        self.microsleep_history = [time.time()]  # Initialisation avec le temps actuel
+
+        # Compensation de la luminosité
+        self.brightness_compensation = True
+        self.brightness_history = []
+        self.brightness_window = 10
+
         self.left_eye_still_closed = False
         self.right_eye_still_closed = False
         self.yawn_in_progress = False
@@ -65,10 +94,42 @@ class VigilanceCore(QMainWindow):
             'mouth': [61, 291, 0, 17, 269, 405]
         }
 
-        # Initialisation des modèles YOLO
+        # Initialisation des modèles YOLO avec des seuils optimisés
         self.detectyawn = YOLO("runs/detectyawn/train/weights/best.pt")
         self.detecteye = YOLO("runs/detecteye/train/weights/best.pt")
         self.yolo_object = YOLO("yolov8n.pt")
+
+        # Paramètres avancés de détection
+        self.detection_params = {
+            'eye_conf_threshold': 0.25,      # Seuil de confiance plus bas pour la détection des yeux
+            'yawn_conf_threshold': 0.30,     # Seuil de confiance plus bas pour la détection des bâillements
+            'object_conf_threshold': 0.45,    # Seuil de confiance pour la détection d'objets
+            'iou_threshold': 0.45,           # Seuil IOU pour le NMS
+            'min_face_size': 50,             # Taille minimale du visage en pixels
+            'max_face_size': 400,            # Taille maximale du visage en pixels
+            'eye_ar_threshold': 0.20,        # Seuil EAR plus bas pour détecter les yeux fermés
+            'yawn_ar_threshold': 0.40,       # Seuil MAR plus bas pour détecter les bâillements
+            'debug_mode': True               # Mode débogage activé
+        }
+
+        # Paramètres avancés de fatigue
+        self.fatigue_params = {
+            'blink_threshold': 0.3,          # Durée minimale d'un clignement (secondes)
+            'microsleep_threshold': 0.8,      # Durée minimale d'un micro-sommeil (secondes)
+            'yawn_duration_threshold': 1.5,   # Durée minimale d'un bâillement (secondes)
+            'fatigue_window': 60,            # Fenêtre de temps pour l'analyse de la fatigue (secondes)
+            'blink_frequency_threshold': 30,  # Nombre de clignements par minute considéré comme signe de fatigue
+            'head_movement_threshold': 0.2    # Seuil de mouvement de la tête
+        }
+
+        # Historique pour l'analyse de la fatigue
+        self.fatigue_history = {
+            'blinks': [],
+            'yawns': [],
+            'microsleeps': [],
+            'head_movements': [],
+            'timestamps': []
+        }
 
         # Configuration de la fenêtre principale
         self.setWindowTitle("Détection de Somnolence")
@@ -77,6 +138,36 @@ class VigilanceCore(QMainWindow):
             QMainWindow {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A0F23, stop:1 #1E2A44);
                 border: none;
+            }
+            QLabel {
+                color: #FFFFFF;
+                padding: 10px;
+                background-color: rgba(14, 20, 35, 0.7);
+                border-radius: 10px;
+                border: 2px solid #007BFF;
+            }
+            QProgressBar {
+                border: none;
+                border-radius: 10px;
+                background: rgba(10, 15, 35, 0.8);
+                text-align: center;
+                color: #FFFFFF;
+                font-family: 'Orbitron';
+                font-size: 16px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #FF007A);
+                border-radius: 10px;
+            }
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #007BFF);
+                color: #FFFFFF;
+                padding: 12px;
+                border-radius: 10px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #007BFF, stop:1 #00D4FF);
             }
         """)
 
@@ -246,13 +337,16 @@ class VigilanceCore(QMainWindow):
         # Test des caméras disponibles et sélection de la caméra USB externe
         available_cameras = []
         for i in range(10):  # Teste les 10 premiers indices de caméra
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret:
-                    available_cameras.append(i)
-                    print(f"Caméra {i} disponible")
-                cap.release()
+            try:
+                cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)  # Utilise DirectShow pour Windows
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret:
+                        available_cameras.append(i)
+                        print(f"Caméra {i} disponible")
+                    cap.release()
+            except Exception as e:
+                print(f"Erreur avec la caméra {i}: {str(e)}")
         
         if len(available_cameras) > 1:
             # Si plusieurs caméras sont disponibles, utilise la dernière (souvent la caméra USB externe)
@@ -266,13 +360,18 @@ class VigilanceCore(QMainWindow):
             sys.exit(1)
 
         # Capture vidéo avec la caméra sélectionnée
-        self.cap = cv2.VideoCapture(camera_index)
+        self.cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
         
-        # Configuration de la résolution de la caméra (1280x720 pour de meilleures performances)
+        # Configuration de la résolution de la caméra
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)  # 30 FPS pour de meilleures performances
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
         
+        # Vérification de l'ouverture de la caméra
+        if not self.cap.isOpened():
+            print("Erreur: Impossible d'ouvrir la caméra")
+            sys.exit(1)
+
         time.sleep(1.0)  # Attendre l'initialisation de la caméra
 
         # Gestion des threads
@@ -293,6 +392,45 @@ class VigilanceCore(QMainWindow):
         # Animation pour la barre de fatigue
         self.fatigue_animation = QPropertyAnimation(self.fatigue_bar, b"value")
         self.fatigue_animation.setEasingCurve(QEasingCurve.InOutQuad)
+
+        # Initialisation du signal emitter
+        self.signal_emitter = SignalEmitter()
+        self.signal_emitter.update_ui.connect(self.update_ui_from_signal)
+        self.signal_emitter.update_frame.connect(self.update_frame_from_signal)
+
+    def update_ui_from_signal(self, data):
+        """Met à jour l'interface utilisateur depuis le thread principal"""
+        if 'fatigue_level' in data:
+            new_fatigue_level = data['fatigue_level']
+            if new_fatigue_level != self.fatigue_level:
+                self.fatigue_animation.setStartValue(self.fatigue_level)
+                self.fatigue_animation.setEndValue(new_fatigue_level)
+                self.fatigue_animation.setDuration(500)
+                self.fatigue_animation.start()
+            self.fatigue_level = new_fatigue_level
+
+        if 'alert_text' in data:
+            self.alert_text = data['alert_text']
+            self.alert_label.setText(self.alert_text)
+
+        if 'status' in data:
+            self.status_label.setText(data['status'])
+            self.status_label.setStyleSheet(data['status_style'])
+
+        if 'metrics' in data:
+            metrics = data['metrics']
+            for key, value in metrics.items():
+                if key in self.metrics:
+                    self.metrics[key].setText(value)
+
+    def update_frame_from_signal(self, frame):
+        """Met à jour l'affichage de la frame depuis le thread principal"""
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        bytes_per_line = ch * w
+        convert_to_Qt_format = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        p = convert_to_Qt_format.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.video_label.setPixmap(QPixmap.fromImage(p))
 
     def update_stats(self):
         new_fatigue_level = min(100, int((self.microsleeps + self.yawn_duration) * 10))
@@ -458,23 +596,154 @@ class VigilanceCore(QMainWindow):
             print(f"Erreur lors de la prédiction du bâillement: {e}")
 
     def detect_objects(self, frame):
-        """Détection des objets (personnes, animaux, etc.) avec YOLOv8"""
-        results = self.yolo_object.predict(frame, conf=0.5)  # Seuil de confiance à 0.5
-        boxes = results[0].boxes
+        """Détection améliorée des objets avec YOLOv8"""
+        results = self.yolo_object.predict(
+            frame,
+            conf=self.detection_params['object_conf_threshold'],
+            iou=self.detection_params['iou_threshold'],
+            classes=[0, 67, 68]  # Personne, téléphone portable, téléphone
+        )
 
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
-            confidence = box.conf.cpu().numpy()[0]
-            class_id = int(box.cls.cpu().numpy()[0])
-            label = self.yolo_object.names[class_id]
+        detected_objects = []
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy())
+                confidence = float(box.conf)
+                class_id = int(box.cls)
+                label = result.names[class_id]
 
-            # Dessiner un rectangle autour de l'objet détecté
-            color = (0, 255, 0) if label == "person" else (255, 0, 0)  # Vert pour personne, rouge pour autres
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            cv2.putText(frame, f"{label} {confidence:.2f}", (x1, y1 - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                # Dessiner les boîtes et les étiquettes
+                color = (0, 255, 0) if label == "person" else (0, 0, 255)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f"{label} {confidence:.2f}", (x1, y1 - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        return frame
+                detected_objects.append({
+                    'label': label,
+                    'confidence': confidence,
+                    'box': (x1, y1, x2, y2)
+                })
+
+        return frame, detected_objects
+
+    def analyze_eye_state(self, eye_points, frame):
+        """Analyse améliorée de l'état des yeux avec détection détaillée"""
+        ear = self.eye_aspect_ratio(eye_points)
+        
+        # Extraction de la région de l'œil
+        x, y = np.min(eye_points, axis=0)
+        w, h = np.max(eye_points, axis=0) - np.min(eye_points, axis=0)
+        eye_region = frame[int(y):int(y+h), int(x):int(x+w)]
+        
+        if eye_region.size == 0:
+            if self.detection_params['debug_mode']:
+                print("Avertissement: Région de l'œil vide")
+            return 'unknown', 0.0, {'state': 'unknown', 'confidence': 0.0, 'details': 'Region non détectée'}
+
+        # Analyse de la luminosité locale
+        brightness = np.mean(eye_region)
+        contrast = np.std(eye_region)
+        
+        # Ajustement dynamique du seuil
+        dynamic_threshold = self.detection_params['eye_ar_threshold'] * (1.0 + (brightness - 128) / 256.0)
+        
+        if self.detection_params['debug_mode']:
+            print(f"EAR: {ear:.3f}, Seuil: {dynamic_threshold:.3f}, Luminosité: {brightness:.1f}")
+
+        # Classification détaillée de l'état
+        if ear < dynamic_threshold * 0.7:  # Très fermé
+            confidence = (dynamic_threshold - ear) / dynamic_threshold
+            return 'closed', confidence, {
+                'state': 'closed',
+                'confidence': confidence,
+                'details': 'Œil complètement fermé',
+                'brightness': brightness,
+                'contrast': contrast,
+                'ear': ear
+            }
+        elif ear < dynamic_threshold:  # Partiellement fermé
+            confidence = (dynamic_threshold - ear) / dynamic_threshold
+            return 'partially_closed', confidence, {
+                'state': 'partially_closed',
+                'confidence': confidence,
+                'details': 'Œil partiellement fermé',
+                'brightness': brightness,
+                'contrast': contrast,
+                'ear': ear
+            }
+        else:  # Ouvert
+            confidence = (ear - dynamic_threshold) / (1.0 - dynamic_threshold)
+            return 'open', confidence, {
+                'state': 'open',
+                'confidence': confidence,
+                'details': 'Œil ouvert',
+                'brightness': brightness,
+                'contrast': contrast,
+                'ear': ear
+            }
+
+    def mouth_aspect_ratio(self, mouth_points):
+        """Calcule le ratio d'aspect de la bouche (MAR) avec plus de précision"""
+        # Points supplémentaires pour une meilleure détection
+        vertical_distances = [
+            np.linalg.norm(mouth_points[1] - mouth_points[5]),
+            np.linalg.norm(mouth_points[2] - mouth_points[4])
+        ]
+        horizontal_distance = np.linalg.norm(mouth_points[0] - mouth_points[3])
+        
+        # Calcul du ratio avec moyenne pondérée
+        mar = (sum(vertical_distances) * 0.5) / (horizontal_distance + 1e-6)
+        
+        if self.detection_params['debug_mode']:
+            print(f"MAR: {mar:.3f}")
+            
+        return mar
+
+    def detect_head_movement(self, face_landmarks):
+        """Détection des mouvements de la tête"""
+        if not face_landmarks:
+            return 0.0
+
+        # Points de repère pour le nez et les yeux
+        nose = np.array([face_landmarks.landmark[4].x, face_landmarks.landmark[4].y])
+        left_eye = np.array([face_landmarks.landmark[33].x, face_landmarks.landmark[33].y])
+        right_eye = np.array([face_landmarks.landmark[263].x, face_landmarks.landmark[263].y])
+
+        # Calcul de l'angle de la tête
+        eye_center = (left_eye + right_eye) / 2
+        angle = np.arctan2(nose[1] - eye_center[1], nose[0] - eye_center[0])
+        
+        return abs(angle)
+
+    def update_fatigue_level(self):
+        """Calcul amélioré du niveau de fatigue"""
+        current_time = time.time()
+        window_start = current_time - self.fatigue_params['fatigue_window']
+
+        # Nettoyage des anciennes données
+        for key in self.fatigue_history:
+            if key != 'timestamps':
+                self.fatigue_history[key] = [x for i, x in enumerate(self.fatigue_history[key])
+                                           if self.fatigue_history['timestamps'][i] > window_start]
+        self.fatigue_history['timestamps'] = [t for t in self.fatigue_history['timestamps']
+                                            if t > window_start]
+
+        # Calcul des métriques de fatigue
+        blink_rate = len(self.fatigue_history['blinks']) / (self.fatigue_params['fatigue_window'] / 60)
+        yawn_frequency = len(self.fatigue_history['yawns'])
+        microsleep_duration = sum(self.fatigue_history['microsleeps'])
+        head_movement = np.mean(self.fatigue_history['head_movements']) if self.fatigue_history['head_movements'] else 0
+
+        # Calcul du score de fatigue
+        fatigue_score = (
+            0.3 * min(blink_rate / self.fatigue_params['blink_frequency_threshold'], 1.0) +
+            0.3 * min(microsleep_duration / self.fatigue_params['microsleep_threshold'], 1.0) +
+            0.2 * min(yawn_frequency / 3.0, 1.0) +
+            0.2 * min(head_movement / self.fatigue_params['head_movement_threshold'], 1.0)
+        ) * 100
+
+        self.fatigue_level = int(fatigue_score)
 
     def capture_frames(self):
         while not self.stop_event.is_set():
@@ -498,111 +767,143 @@ class VigilanceCore(QMainWindow):
         ear = (v1 + v2) / (2.0 * h)
         return ear
 
-    def mouth_aspect_ratio(self, mouth_points):
-        """Calcule le ratio d'aspect de la bouche (MAR)"""
-        # Calcul des distances verticales
-        v1 = np.linalg.norm(mouth_points[1] - mouth_points[5])
-        v2 = np.linalg.norm(mouth_points[2] - mouth_points[4])
-        
-        # Calcul de la distance horizontale
-        h = np.linalg.norm(mouth_points[0] - mouth_points[3])
-        
-        # Calcul du ratio
-        mar = (v1 + v2) / (2.0 * h)
-        return mar
-
     def process_frames(self):
-        while not self.stop_event.is_set():
-            try:
-                frame = self.frame_queue.get(timeout=1)
-                image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = self.face_mesh.process(image_rgb)
-
-                if results.multi_face_landmarks:
-                    for face_landmarks in results.multi_face_landmarks:
-                        ih, iw, _ = frame.shape
-                        
-                        # Extraction des points pour les yeux
-                        left_eye_points = np.array([(face_landmarks.landmark[id].x * iw, 
-                                                   face_landmarks.landmark[id].y * ih) 
-                                                  for id in self.points_ids['left_eye']])
-                        right_eye_points = np.array([(face_landmarks.landmark[id].x * iw, 
-                                                    face_landmarks.landmark[id].y * ih) 
-                                                   for id in self.points_ids['right_eye']])
-                        
-                        # Extraction des points pour la bouche
-                        mouth_points = np.array([(face_landmarks.landmark[id].x * iw, 
-                                                face_landmarks.landmark[id].y * ih) 
-                                               for id in self.points_ids['mouth']])
-                        
-                        # Calcul des ratios
-                        left_ear = self.eye_aspect_ratio(left_eye_points)
-                        right_ear = self.eye_aspect_ratio(right_eye_points)
-                        mar = self.mouth_aspect_ratio(mouth_points)
-                        
-                        # Détection des yeux fermés
-                        if left_ear < self.EYE_AR_THRESH:
-                            self.left_eye_counter += 1
-                            if self.left_eye_counter >= self.EYE_AR_CONSEC_FRAMES:
-                                self.left_eye_state = "Close Eye"
-                        else:
-                            self.left_eye_counter = 0
-                            self.left_eye_state = "Open Eye"
-                        
-                        if right_ear < self.EYE_AR_THRESH:
-                            self.right_eye_counter += 1
-                            if self.right_eye_counter >= self.EYE_AR_CONSEC_FRAMES:
-                                self.right_eye_state = "Close Eye"
-                        else:
-                            self.right_eye_counter = 0
-                            self.right_eye_state = "Open Eye"
-                        
-                        # Détection des bâillements
-                        if mar > self.YAWN_THRESH:
-                            self.yawn_counter += 1
-                            if self.yawn_counter >= self.YAWN_CONSEC_FRAMES:
-                                self.yawn_state = "Yawn"
-                        else:
-                            self.yawn_counter = 0
-                            self.yawn_state = "No Yawn"
-                        
-                        # Mise à jour des états et des compteurs
-                        if self.left_eye_state == "Close Eye" and self.right_eye_state == "Close Eye":
-                            if not self.left_eye_still_closed and not self.right_eye_still_closed:
-                                self.left_eye_still_closed = True
-                                self.right_eye_still_closed = True
-                                self.blinks += 1
-                            self.microsleeps += 45 / 1000
-                        else:
-                            if self.left_eye_still_closed and self.right_eye_still_closed:
-                                self.left_eye_still_closed = False
-                                self.right_eye_still_closed = False
-                            self.microsleeps = 0
-
-                        if self.yawn_state == "Yawn":
-                            if not self.yawn_in_progress:
-                                self.yawn_in_progress = True
-                                self.yawns += 1
-                            self.yawn_duration += 45 / 1000
-                        else:
-                            if self.yawn_in_progress:
-                                self.yawn_in_progress = False
-                                self.yawn_duration = 0
-
-                        # Mise à jour des statistiques
-                        self.update_stats()
-                        
-                        # Affichage des informations de débogage
-                        self.display_debug_info(frame, [self.left_eye_state, self.right_eye_state], self.yawn_state)
-                        
-                        # Affichage de la frame
-                        self.display_frame(frame)
-
-            except queue.Empty:
+        """Traitement amélioré des frames avec détection détaillée"""
+        while True:
+            if not hasattr(self, 'frame_queue') or self.frame_queue.empty():
+                time.sleep(0.01)
                 continue
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                self.stop_event.set()
+            frame = self.frame_queue.get()
+            self.current_frame = frame.copy()
+            
+            # Détection d'objets
+            frame, detected_objects = self.detect_objects(frame)
+
+            # Conversion en RGB pour MediaPipe
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            rgb_frame.flags.writeable = False
+            results = self.face_mesh.process(rgb_frame)
+            rgb_frame.flags.writeable = True
+
+            if results.multi_face_landmarks:
+                for face_landmarks in results.multi_face_landmarks:
+                    # Extraction des points d'intérêt
+                    frame_height, frame_width = frame.shape[:2]
+                    left_eye_points = np.array([[face_landmarks.landmark[i].x * frame_width, 
+                                               face_landmarks.landmark[i].y * frame_height] 
+                                              for i in self.points_ids['left_eye']])
+                    right_eye_points = np.array([[face_landmarks.landmark[i].x * frame_width, 
+                                                face_landmarks.landmark[i].y * frame_height] 
+                                               for i in self.points_ids['right_eye']])
+                    mouth_points = np.array([[face_landmarks.landmark[i].x * frame_width, 
+                                            face_landmarks.landmark[i].y * frame_height] 
+                                           for i in self.points_ids['mouth']])
+
+                    # Analyse détaillée des yeux
+                    left_eye_state, left_conf, left_details = self.analyze_eye_state(left_eye_points, frame)
+                    right_eye_state, right_conf, right_details = self.analyze_eye_state(right_eye_points, frame)
+
+                    # Analyse de la bouche
+                    mar = self.mouth_aspect_ratio(mouth_points)
+                    if mar > self.detection_params['yawn_ar_threshold']:
+                        self.yawn_state = 'yawn'
+                        if self.detection_params['debug_mode']:
+                            print(f"Bâillement détecté! MAR: {mar:.3f}")
+                    else:
+                        self.yawn_state = 'normal'
+
+                    # Détection du mouvement de la tête
+                    head_movement = self.detect_head_movement(face_landmarks)
+                    
+                    # Mise à jour de l'historique
+                    current_time = time.time()
+                    if left_eye_state == 'closed' and right_eye_state == 'closed':
+                        self.fatigue_history['blinks'].append(1)
+                        self.fatigue_history['timestamps'].append(current_time)
+                        if self.detection_params['debug_mode']:
+                            print("Clignement détecté!")
+                        
+                    if self.yawn_state == 'yawn':
+                        self.fatigue_history['yawns'].append(1)
+                        self.fatigue_history['timestamps'].append(current_time)
+                        
+                    self.fatigue_history['head_movements'].append(head_movement)
+                    self.fatigue_history['timestamps'].append(current_time)
+
+                    # Mise à jour du niveau de fatigue
+                    self.update_fatigue_level()
+
+                    # Affichage des informations détaillées sur la frame
+                    self.display_eye_info(frame, left_details, right_details)
+
+                    # Mise à jour de l'interface
+                    ui_data = {
+                        'fatigue_level': self.fatigue_level,
+                        'alert_text': self.get_alert_message(),
+                        'status': self.get_status_message(),
+                        'status_style': self.get_status_style(self.fatigue_level),
+                        'metrics': self.get_metrics_data(),
+                        'eye_states': {
+                            'left': left_details,
+                            'right': right_details
+                        }
+                    }
+                    self.signal_emitter.update_ui.emit(ui_data)
+                    self.signal_emitter.update_frame.emit(frame)
+
+    def display_eye_info(self, frame, left_details, right_details):
+        """Affiche les informations détaillées sur les yeux"""
+        try:
+            # Informations sur l'œil gauche
+            left_text = f"Gauche: {left_details['state']} ({left_details['confidence']:.2f})"
+            cv2.putText(frame, left_text, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # Informations sur l'œil droit
+            right_text = f"Droit: {right_details['state']} ({right_details['confidence']:.2f})"
+            cv2.putText(frame, right_text, (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # Détails supplémentaires
+            details_text = f"Luminosité: {left_details['brightness']:.1f} | Contraste: {left_details['contrast']:.1f}"
+            cv2.putText(frame, details_text, (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+        except Exception as e:
+            print(f"Erreur lors de l'affichage des informations des yeux: {e}")
+
+    def get_alert_message(self):
+        """Génère un message d'alerte personnalisé"""
+        if self.fatigue_level > 75:
+            return "⚠ ALERTE CRITIQUE : Niveau de fatigue très élevé!"
+        elif self.fatigue_level > 50:
+            return "⚠ Attention : Signes de fatigue détectés"
+        elif self.microsleeps > 0:
+            return "⚠ Attention : Micro-sommeil détecté"
+        elif self.yawn_duration > 1.5:
+            return "⚠ Attention : Bâillement prolongé"
+        return ""
+
+    def get_status_message(self):
+        """Génère un message de statut détaillé"""
+        if self.fatigue_level > 75:
+            return "État: CRITIQUE - Repos nécessaire"
+        elif self.fatigue_level > 50:
+            return "État: ATTENTION - Fatigue détectée"
+        return "État: Normal"
+
+    def get_metrics_data(self):
+        """Prépare les données des métriques pour l'affichage avec plus de détails"""
+        return {
+            'blinks': f"👁 Clignements: {self.blinks}/min",
+            'microsleeps': f"💤 Micro-sommeils: {round(self.microsleeps, 2)} s",
+            'yawns': f"😴 Bâillements: {self.yawns}",
+            'yawn_duration': f"⏲ Durée bâillements: {round(self.yawn_duration, 2)} s",
+            'fps': f"📈 FPS: {round(self.fps, 1)}",
+            'left_eye': f"👁 Œil gauche: {self.left_eye_state}",
+            'right_eye': f"👁 Œil droit: {self.right_eye_state}"
+        }
 
     def display_frame(self, frame):
         rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -626,26 +927,39 @@ class VigilanceCore(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        # Fermer la connexion Arduino si elle existe
-        if self.arduino:
-            self.arduino.close()
-        with open("vigilance_stats.txt", "w") as f:
-            f.write(f"Clignements: {self.blinks}\n")
-            f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
-            f.write(f"Bâillements: {self.yawns}\n")
-            f.write(f"Durée bâillements: {round(self.yawn_duration, 2)} s\n")
-            f.write(f"Niveau de fatigue: {self.fatigue_level}%\n")
-        self.stop_event.set()
-        self.cap.release()
-        event.accept()
+        """Gestion propre de la fermeture de l'application"""
+        try:
+            # Fermer la connexion Arduino si elle existe
+            if self.arduino:
+                self.arduino.close()
+            
+            # Sauvegarder les statistiques
+            with open("vigilance_stats.txt", "w") as f:
+                f.write(f"Clignements: {self.blinks}\n")
+                f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
+                f.write(f"Bâillements: {self.yawns}\n")
+                f.write(f"Durée bâillements: {round(self.yawn_duration, 2)} s\n")
+                f.write(f"Niveau de fatigue: {self.fatigue_level}%\n")
+            
+            # Arrêter les threads
+            self.stop_event.set()
+            
+            # Fermer la caméra
+            if hasattr(self, 'cap') and self.cap.isOpened():
+                self.cap.release()
+            
+            event.accept()
+        except Exception as e:
+            print(f"Erreur lors de la fermeture: {str(e)}")
+            event.accept()
 
     def display_debug_info(self, frame, eye_states, yawn_state):
         """Affiche les informations de débogage sur la frame"""
         try:
             # Informations sur les yeux
-            cv2.putText(frame, f"Left Eye: {eye_states[0]}", (10, 30),
+            cv2.putText(frame, f"Left Eye: {eye_states['left']}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            cv2.putText(frame, f"Right Eye: {eye_states[1]}", (10, 60),
+            cv2.putText(frame, f"Right Eye: {eye_states['right']}", (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             # Information sur le bâillement
@@ -671,6 +985,117 @@ class VigilanceCore(QMainWindow):
             
         except Exception as e:
             print(f"Erreur lors de l'affichage des informations de débogage: {e}")
+
+    def start_calibration(self):
+        """Démarre le mode de calibration"""
+        self.calibration_mode = True
+        self.calibration_samples = []
+        self.status_label.setText("Calibration en cours...")
+        self.alert_label.setText("Regardez la caméra normalement")
+
+    def end_calibration(self):
+        """Termine la calibration et ajuste les seuils"""
+        if len(self.calibration_samples) > 0:
+            # Calcul des seuils moyens
+            left_eye_avg = np.mean([sample['left_eye'] for sample in self.calibration_samples])
+            right_eye_avg = np.mean([sample['right_eye'] for sample in self.calibration_samples])
+            yawn_avg = np.mean([sample['yawn'] for sample in self.calibration_samples])
+
+            # Ajustement des seuils avec une marge de sécurité
+            self.eye_ar_thresholds['left'] = left_eye_avg * 0.8
+            self.eye_ar_thresholds['right'] = right_eye_avg * 0.8
+            self.yawn_thresholds['normal'] = yawn_avg * 1.2
+            self.yawn_thresholds['talking'] = yawn_avg * 1.5
+
+        self.calibration_mode = False
+        self.status_label.setText("Calibration terminée")
+        self.alert_label.setText("")
+
+    def collect_calibration_sample(self, left_eye_ar, right_eye_ar, yawn_ar):
+        """Collecte un échantillon pour la calibration"""
+        if self.calibration_mode:
+            self.calibration_samples.append({
+                'left_eye': left_eye_ar,
+                'right_eye': right_eye_ar,
+                'yawn': yawn_ar
+            })
+            if len(self.calibration_samples) >= 30:  # 30 échantillons suffisants
+                self.end_calibration()
+
+    def adjust_thresholds(self, current_conditions):
+        """Ajuste dynamiquement les seuils en fonction des conditions"""
+        if not self.adaptive_thresholds:
+            return
+
+        # Ajustement basé sur la luminosité
+        brightness = np.mean(self.current_frame)
+        if brightness < 50:  # Conditions sombres
+            self.eye_ar_thresholds['left'] *= 0.9
+            self.eye_ar_thresholds['right'] *= 0.9
+        elif brightness > 200:  # Conditions très lumineuses
+            self.eye_ar_thresholds['left'] *= 1.1
+            self.eye_ar_thresholds['right'] *= 1.1
+
+        # Ajustement basé sur la distance à la caméra
+        face_size = current_conditions.get('face_size', 0)
+        if face_size > 0:
+            if face_size < 100:  # Visage trop loin
+                self.yawn_thresholds['normal'] *= 0.9
+            elif face_size > 300:  # Visage trop près
+                self.yawn_thresholds['normal'] *= 1.1
+
+    def validate_detection(self, eye_type, ratio):
+        """Valide la détection de l'œil ou du bâillement"""
+        if eye_type == 'left_eye':
+            return ratio < self.eye_ar_thresholds['left']
+        elif eye_type == 'right_eye':
+            return ratio < self.eye_ar_thresholds['right']
+        elif eye_type == 'yawn':
+            return ratio > self.yawn_thresholds['normal']
+        return False
+
+    def detect_microsleep(self, eye_state, current_time):
+        """Détecte un micro-sommeil en fonction de l'état de l'œil"""
+        if eye_state == 'closed':
+            if len(self.microsleep_history) > 0 and current_time - self.microsleep_history[-1] > self.microsleep_threshold:
+                self.microsleep_history.append(current_time)
+                return True
+        else:
+            self.microsleep_history = [current_time]  # Réinitialisation si les yeux sont ouverts
+        return False
+
+    def get_status_style(self, fatigue_level):
+        """Retourne le style CSS approprié pour le niveau de fatigue"""
+        if fatigue_level > 75:
+            return """
+                color: #FF0000;
+                text-align: center;
+                padding: 12px;
+                background-color: rgba(255, 0, 0, 0.2);
+                border-radius: 8px;
+                font-size: 18px;
+                font-weight: bold;
+            """
+        elif fatigue_level > 50:
+            return """
+                color: #FFA500;
+                text-align: center;
+                padding: 12px;
+                background-color: rgba(255, 165, 0, 0.2);
+                border-radius: 8px;
+                font-size: 18px;
+                font-weight: bold;
+            """
+        else:
+            return """
+                color: #00FF00;
+                text-align: center;
+                padding: 12px;
+                background-color: rgba(0, 255, 0, 0.2);
+                border-radius: 8px;
+                font-size: 18px;
+                font-weight: bold;
+            """
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
