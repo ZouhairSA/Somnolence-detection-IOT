@@ -62,29 +62,69 @@ Le programme de détection de somnolence fonctionne en temps réel avec les cara
   - Inférence : ~190-200ms
   - Post-traitement : ~1-2ms
 
-### Fonctionnalités Principales
-1. **Détection des Yeux**
-   - État des yeux (ouvert/fermé)
-   - Comptage des clignements
-   - Détection des micro-sommeils
+### Système de Détection Amélioré
+1. **Détection des Yeux (Système Avancé)**
+   - Analyse du ratio d'ouverture des yeux (EAR - Eye Aspect Ratio)
+   - Détection des micro-sommeils (fermeture rapide des yeux)
+   - Suivi de la fréquence des clignements
+   - Seuils personnalisables pour la sensibilité
+   - Compensation de la luminosité ambiante
+   - Filtrage des faux positifs
 
-2. **Détection des Bâillements**
-   - Identification des bâillements
-   - Comptage des bâillements
-   - Alertes sonores pour les bâillements prolongés
+2. **Détection des Bâillements (Système Avancé)**
+   - Analyse du ratio d'ouverture de la bouche (MAR - Mouth Aspect Ratio)
+   - Détection de la durée des bâillements
+   - Suivi de la fréquence des bâillements
+   - Distinction entre bâillements et parole
+   - Seuils adaptatifs selon l'heure de la journée
 
-3. **Interface Utilisateur**
-   - Affichage vidéo en direct
-   - Barre de progression de la fatigue
-   - Indicateurs d'état en temps réel
-   - Statistiques de vigilance
-   - Boutons de contrôle (Démarrer/Arrêter/Réinitialiser)
+3. **Système de Scoring de Fatigue**
+   - Score de fatigue en temps réel (0-100)
+   - Combinaison de multiples facteurs :
+     - Durée des yeux fermés
+     - Fréquence des bâillements
+     - Mouvements de la tête
+     - Temps de réaction
+   - Historique des scores sur la dernière heure
+   - Prédiction de la fatigue à venir
 
-4. **Alertes et Notifications**
-   - Alertes visuelles pour la somnolence
-   - Alertes sonores pour les bâillements
-   - Indicateurs de niveau de fatigue
-   - Historique des détections
+### Interface Utilisateur Améliorée
+1. **Design Moderne et Intuitif**
+   - Thème sombre/clair personnalisable
+   - Interface responsive et adaptative
+   - Animations fluides pour les transitions
+   - Icônes intuitives et tooltips informatifs
+
+2. **Tableau de Bord Principal**
+   - Vue en direct de la webcam avec overlay des détections
+   - Graphique de score de fatigue en temps réel
+   - Indicateurs visuels pour :
+     - État des yeux (vert/rouge)
+     - Niveau de bâillements
+     - Score de fatigue global
+   - Boutons de contrôle rapide
+
+3. **Panneau de Statistiques**
+   - Graphiques historiques de :
+     - Fréquence des clignements
+     - Nombre de bâillements
+     - Score de fatigue
+   - Export des données au format CSV
+   - Filtres temporels (heure/jour/semaine)
+
+4. **Paramètres Avancés**
+   - Calibration de la caméra
+   - Ajustement des seuils de détection
+   - Configuration des alertes
+   - Personnalisation des sons d'alerte
+   - Sauvegarde des préférences
+
+5. **Système d'Alertes Intégré**
+   - Alertes visuelles personnalisables
+   - Sons d'alerte progressifs
+   - Notifications système
+   - Historique des alertes
+   - Mode silencieux disponible
 
 ### Communication avec Arduino
 1. **Configuration du Port Série**
