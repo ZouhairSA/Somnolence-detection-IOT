@@ -34,8 +34,8 @@ L'objectif principal de ce projet IoT est de **détecter la somnolence et alerte
 
 1. Cloner le dépôt :
 ```bash
-git clone https://github.com/votre-username/Real_time_drowsy_driving_detection.git
-cd Real_time_drowsy_driving_detection
+git clone https://github.com/ZouhairSA/Somnolence-detection-IOT.git
+cd Somnolence-detection-IOT
 ```
 
 2. Créer un environnement virtuel et l'activer :
@@ -86,6 +86,27 @@ Le programme de détection de somnolence fonctionne en temps réel avec les cara
    - Indicateurs de niveau de fatigue
    - Historique des détections
 
+### Communication avec Arduino
+1. **Configuration du Port Série**
+   - Détection automatique du port COM
+   - Configuration de la vitesse de communication (baud rate)
+   - Gestion des erreurs de connexion
+
+2. **Protocole de Communication**
+   - Envoi de commandes en temps réel
+   - Format des messages : "EYE_CLOSED", "YAWN_DETECTED", "ALERT"
+   - Gestion des délais et des timeouts
+
+3. **Intégration du Buzzer**
+   - Contrôle du buzzer via Arduino
+   - Différents types d'alertes sonores
+   - Configuration de la fréquence et de la durée des alertes
+
+4. **Sécurité et Robustesse**
+   - Vérification de la connexion Arduino
+   - Gestion des déconnexions
+   - Logs de communication
+
 ### Utilisation
 1. Lancer le programme :
 ```bash
@@ -111,3 +132,4 @@ python DrowsinessDetector.py
     ```bash
     git clone https://github.com/ZouhairSA/Somnolence-detection-IOT.git
     cd Somnolence-detection-IOT
+    ```
