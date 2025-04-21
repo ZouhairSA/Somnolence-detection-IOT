@@ -10,10 +10,15 @@ import sys
 from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QProgressBar
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
 from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve
+import serial
 
 class VigilanceCore(QMainWindow):
-    def __init__(self):
+    def __init__(self, use_arduino=False, arduino=None):
         super().__init__()
+
+        # Ajout des paramètres Arduino
+        self.use_arduino = use_arduino
+        self.arduino = arduino
 
         # Initialisation des états et compteurs
         self.yawn_state = ''
@@ -30,9 +35,20 @@ class VigilanceCore(QMainWindow):
         self.frame_count = 0
         self.start_time = time.time()
 
+        # Seuils de détection améliorés
+        self.EYE_AR_THRESH = 0.25  # Seuil pour la détection des yeux fermés
+        self.EYE_AR_CONSEC_FRAMES = 3  # Nombre de frames consécutives pour confirmer
+        self.YAWN_THRESH = 0.5  # Seuil pour la détection des bâillements
+        self.YAWN_CONSEC_FRAMES = 3  # Nombre de frames consécutives pour confirmer
+
         self.left_eye_still_closed = False
         self.right_eye_still_closed = False
         self.yawn_in_progress = False
+
+        # Compteurs pour la détection consécutive
+        self.left_eye_counter = 0
+        self.right_eye_counter = 0
+        self.yawn_counter = 0
 
         # Initialisation de MediaPipe FaceMesh
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
@@ -42,11 +58,11 @@ class VigilanceCore(QMainWindow):
             min_tracking_confidence=0.5
         )
         
-        # Points d'intérêt pour les yeux et la bouche
+        # Points d'intérêt pour les yeux et la bouche (plus précis)
         self.points_ids = {
-            'left_eye': [33, 246, 161, 160],
-            'right_eye': [362, 398, 384, 385],
-            'mouth': [61, 291, 199, 419]
+            'left_eye': [33, 160, 158, 133, 153, 144],
+            'right_eye': [362, 385, 387, 263, 373, 380],
+            'mouth': [61, 291, 0, 17, 269, 405]
         }
 
         # Initialisation des modèles YOLO
@@ -227,9 +243,37 @@ class VigilanceCore(QMainWindow):
 
         self.control_layout.addLayout(self.button_layout)
 
-        # Capture vidéo
-        self.cap = cv2.VideoCapture(0)
-        time.sleep(1.0)
+        # Test des caméras disponibles et sélection de la caméra USB externe
+        available_cameras = []
+        for i in range(10):  # Teste les 10 premiers indices de caméra
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    available_cameras.append(i)
+                    print(f"Caméra {i} disponible")
+                cap.release()
+        
+        if len(available_cameras) > 1:
+            # Si plusieurs caméras sont disponibles, utilise la dernière (souvent la caméra USB externe)
+            camera_index = available_cameras[-1]
+            print(f"Utilisation de la caméra externe (index {camera_index})")
+        elif len(available_cameras) == 1:
+            camera_index = available_cameras[0]
+            print(f"Utilisation de la seule caméra disponible (index {camera_index})")
+        else:
+            print("Aucune caméra trouvée!")
+            sys.exit(1)
+
+        # Capture vidéo avec la caméra sélectionnée
+        self.cap = cv2.VideoCapture(camera_index)
+        
+        # Configuration de la résolution de la caméra (1280x720 pour de meilleures performances)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)  # 30 FPS pour de meilleures performances
+        
+        time.sleep(1.0)  # Attendre l'initialisation de la caméra
 
         # Gestion des threads
         self.frame_queue = queue.Queue(maxsize=2)
@@ -321,6 +365,17 @@ class VigilanceCore(QMainWindow):
             self.metrics["fps"].setText(f"📈 FPS: {round(self.fps, 1)}")
             self.frame_count = 0
             self.start_time = time.time()
+
+        # Envoyer l'état à l'Arduino si nécessaire
+        if self.use_arduino and self.arduino:
+            try:
+                if self.fatigue_level > 0:
+                    self.arduino.write(b'S')  # S pour Somnolence
+                else:
+                    self.arduino.write(b'A')  # A pour Attentif
+            except serial.SerialException:
+                print("Erreur de communication avec l'Arduino")
+                self.use_arduino = False
 
     def toggle_alert_glow(self):
         self.alert_blink_state = not self.alert_blink_state
@@ -430,6 +485,32 @@ class VigilanceCore(QMainWindow):
             else:
                 break
 
+    def eye_aspect_ratio(self, eye_points):
+        """Calcule le ratio d'aspect de l'œil (EAR)"""
+        # Calcul des distances verticales
+        v1 = np.linalg.norm(eye_points[1] - eye_points[5])
+        v2 = np.linalg.norm(eye_points[2] - eye_points[4])
+        
+        # Calcul de la distance horizontale
+        h = np.linalg.norm(eye_points[0] - eye_points[3])
+        
+        # Calcul du ratio
+        ear = (v1 + v2) / (2.0 * h)
+        return ear
+
+    def mouth_aspect_ratio(self, mouth_points):
+        """Calcule le ratio d'aspect de la bouche (MAR)"""
+        # Calcul des distances verticales
+        v1 = np.linalg.norm(mouth_points[1] - mouth_points[5])
+        v2 = np.linalg.norm(mouth_points[2] - mouth_points[4])
+        
+        # Calcul de la distance horizontale
+        h = np.linalg.norm(mouth_points[0] - mouth_points[3])
+        
+        # Calcul du ratio
+        mar = (v1 + v2) / (2.0 * h)
+        return mar
+
     def process_frames(self):
         while not self.stop_event.is_set():
             try:
@@ -441,88 +522,49 @@ class VigilanceCore(QMainWindow):
                     for face_landmarks in results.multi_face_landmarks:
                         ih, iw, _ = frame.shape
                         
-                        # Points pour la bouche
-                        mouth_points = []
-                        for point_id in [61, 291, 0, 17]:  # Points clés de la bouche
-                            lm = face_landmarks.landmark[point_id]
-                            x, y = int(lm.x * iw), int(lm.y * ih)
-                            mouth_points.append((x, y))
-                            cv2.circle(frame, (x, y), 2, (0, 255, 0), -1)
+                        # Extraction des points pour les yeux
+                        left_eye_points = np.array([(face_landmarks.landmark[id].x * iw, 
+                                                   face_landmarks.landmark[id].y * ih) 
+                                                  for id in self.points_ids['left_eye']])
+                        right_eye_points = np.array([(face_landmarks.landmark[id].x * iw, 
+                                                    face_landmarks.landmark[id].y * ih) 
+                                                   for id in self.points_ids['right_eye']])
                         
-                        # Points pour les yeux
-                        right_eye_points = []
-                        left_eye_points = []
-                        for point_id in [33, 133, 159, 145]:  # Points clés de l'œil droit
-                            lm = face_landmarks.landmark[point_id]
-                            x, y = int(lm.x * iw), int(lm.y * ih)
-                            right_eye_points.append((x, y))
-                            cv2.circle(frame, (x, y), 2, (0, 255, 0), -1)
+                        # Extraction des points pour la bouche
+                        mouth_points = np.array([(face_landmarks.landmark[id].x * iw, 
+                                                face_landmarks.landmark[id].y * ih) 
+                                               for id in self.points_ids['mouth']])
                         
-                        for point_id in [362, 263, 386, 374]:  # Points clés de l'œil gauche
-                            lm = face_landmarks.landmark[point_id]
-                            x, y = int(lm.x * iw), int(lm.y * ih)
-                            left_eye_points.append((x, y))
-                            cv2.circle(frame, (x, y), 2, (0, 255, 0), -1)
+                        # Calcul des ratios
+                        left_ear = self.eye_aspect_ratio(left_eye_points)
+                        right_ear = self.eye_aspect_ratio(right_eye_points)
+                        mar = self.mouth_aspect_ratio(mouth_points)
                         
-                        # Extraction des ROIs avec marges
-                        if len(mouth_points) == 4:
-                            x_min = min(x for x, _ in mouth_points)
-                            y_min = min(y for _, y in mouth_points)
-                            x_max = max(x for x, _ in mouth_points)
-                            y_max = max(y for _, y in mouth_points)
-                            
-                            # Ajout d'une marge pour la ROI
-                            margin = 10
-                            x_min = max(0, x_min - margin)
-                            y_min = max(0, y_min - margin)
-                            x_max = min(iw, x_max + margin)
-                            y_max = min(ih, y_max + margin)
-                            
-                            if x_max > x_min and y_max > y_min:
-                                mouth_roi = frame[y_min:y_max, x_min:x_max]
-                                if mouth_roi.size > 0:
-                                    self.predict_yawn(mouth_roi)
-                                    # Dessiner le rectangle de la ROI
-                                    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 255), 1)
+                        # Détection des yeux fermés
+                        if left_ear < self.EYE_AR_THRESH:
+                            self.left_eye_counter += 1
+                            if self.left_eye_counter >= self.EYE_AR_CONSEC_FRAMES:
+                                self.left_eye_state = "Close Eye"
+                        else:
+                            self.left_eye_counter = 0
+                            self.left_eye_state = "Open Eye"
                         
-                        # Extraction des ROIs des yeux
-                        if len(right_eye_points) == 4:
-                            x_min = min(x for x, _ in right_eye_points)
-                            y_min = min(y for _, y in right_eye_points)
-                            x_max = max(x for x, _ in right_eye_points)
-                            y_max = max(y for _, y in right_eye_points)
-                            
-                            margin = 5
-                            x_min = max(0, x_min - margin)
-                            y_min = max(0, y_min - margin)
-                            x_max = min(iw, x_max + margin)
-                            y_max = min(ih, y_max + margin)
-                            
-                            if x_max > x_min and y_max > y_min:
-                                right_eye_roi = frame[y_min:y_max, x_min:x_max]
-                                if right_eye_roi.size > 0:
-                                    self.right_eye_state = self.predict_eye(right_eye_roi, self.right_eye_state)
-                                    # Dessiner le rectangle de la ROI
-                                    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 0, 0), 1)
+                        if right_ear < self.EYE_AR_THRESH:
+                            self.right_eye_counter += 1
+                            if self.right_eye_counter >= self.EYE_AR_CONSEC_FRAMES:
+                                self.right_eye_state = "Close Eye"
+                        else:
+                            self.right_eye_counter = 0
+                            self.right_eye_state = "Open Eye"
                         
-                        if len(left_eye_points) == 4:
-                            x_min = min(x for x, _ in left_eye_points)
-                            y_min = min(y for _, y in left_eye_points)
-                            x_max = max(x for x, _ in left_eye_points)
-                            y_max = max(y for _, y in left_eye_points)
-                            
-                            margin = 5
-                            x_min = max(0, x_min - margin)
-                            y_min = max(0, y_min - margin)
-                            x_max = min(iw, x_max + margin)
-                            y_max = min(ih, y_max + margin)
-                            
-                            if x_max > x_min and y_max > y_min:
-                                left_eye_roi = frame[y_min:y_max, x_min:x_max]
-                                if left_eye_roi.size > 0:
-                                    self.left_eye_state = self.predict_eye(left_eye_roi, self.left_eye_state)
-                                    # Dessiner le rectangle de la ROI
-                                    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 0, 0), 1)
+                        # Détection des bâillements
+                        if mar > self.YAWN_THRESH:
+                            self.yawn_counter += 1
+                            if self.yawn_counter >= self.YAWN_CONSEC_FRAMES:
+                                self.yawn_state = "Yawn"
+                        else:
+                            self.yawn_counter = 0
+                            self.yawn_state = "No Yawn"
                         
                         # Mise à jour des états et des compteurs
                         if self.left_eye_state == "Close Eye" and self.right_eye_state == "Close Eye":
@@ -584,6 +626,9 @@ class VigilanceCore(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event):
+        # Fermer la connexion Arduino si elle existe
+        if self.arduino:
+            self.arduino.close()
         with open("vigilance_stats.txt", "w") as f:
             f.write(f"Clignements: {self.blinks}\n")
             f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
