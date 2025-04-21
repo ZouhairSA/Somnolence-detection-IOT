@@ -11,6 +11,16 @@ from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWid
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
 from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal, QObject
 import serial
+import uuid
+from datetime import datetime
+
+try:
+    from cassandra_manager import CassandraManager
+    CASSANDRA_AVAILABLE = True
+except Exception as e:
+    print(f"Cassandra non disponible: {str(e)}")
+    print("L'application fonctionnera sans stockage Cassandra")
+    CASSANDRA_AVAILABLE = False
 
 class SignalEmitter(QObject):
     update_ui = pyqtSignal(dict)
@@ -20,9 +30,22 @@ class VigilanceCore(QMainWindow):
     def __init__(self, use_arduino=False, arduino=None):
         super().__init__()
 
+        # Initialisation de Cassandra si disponible
+        self.cassandra = None
+        if CASSANDRA_AVAILABLE:
+            try:
+                self.cassandra = CassandraManager()
+                self.session_id = str(uuid.uuid4())
+                self.device_id = "arduino_mega"
+                self.session_start_time = datetime.now()
+            except Exception as e:
+                print(f"Erreur lors de l'initialisation de Cassandra: {str(e)}")
+                self.cassandra = None
+
         # Ajout des paramètres Arduino
         self.use_arduino = use_arduino
         self.arduino = arduino
+        self.buzzer_pin = 9  # Pin du buzzer sur l'Arduino
 
         # Initialisation des états et compteurs
         self.yawn_state = ''
@@ -40,10 +63,10 @@ class VigilanceCore(QMainWindow):
         self.start_time = time.time()
 
         # Seuils de détection améliorés
-        self.EYE_AR_THRESH = 0.25  # Seuil pour la détection des yeux fermés
-        self.EYE_AR_CONSEC_FRAMES = 3  # Nombre de frames consécutives pour confirmer
-        self.YAWN_THRESH = 0.5  # Seuil pour la détection des bâillements
-        self.YAWN_CONSEC_FRAMES = 3  # Nombre de frames consécutives pour confirmer
+        self.EYE_AR_THRESH = 0.23  # Seuil plus sensible pour la détection des yeux fermés
+        self.EYE_AR_CONSEC_FRAMES = 2  # Réduction du nombre de frames pour une détection plus rapide
+        self.YAWN_THRESH = 0.45  # Seuil ajusté pour la détection des bâillements
+        self.YAWN_CONSEC_FRAMES = 2  # Réduction du nombre de frames pour les bâillements
 
         # Nouveaux paramètres de calibration
         self.calibration_mode = False
@@ -101,25 +124,25 @@ class VigilanceCore(QMainWindow):
 
         # Paramètres avancés de détection
         self.detection_params = {
-            'eye_conf_threshold': 0.25,      # Seuil de confiance plus bas pour la détection des yeux
-            'yawn_conf_threshold': 0.30,     # Seuil de confiance plus bas pour la détection des bâillements
+            'eye_conf_threshold': 0.35,      # Augmentation du seuil de confiance pour les yeux
+            'yawn_conf_threshold': 0.40,     # Augmentation du seuil de confiance pour les bâillements
             'object_conf_threshold': 0.45,    # Seuil de confiance pour la détection d'objets
             'iou_threshold': 0.45,           # Seuil IOU pour le NMS
             'min_face_size': 50,             # Taille minimale du visage en pixels
             'max_face_size': 400,            # Taille maximale du visage en pixels
-            'eye_ar_threshold': 0.20,        # Seuil EAR plus bas pour détecter les yeux fermés
-            'yawn_ar_threshold': 0.40,       # Seuil MAR plus bas pour détecter les bâillements
+            'eye_ar_threshold': 0.23,        # Seuil EAR ajusté
+            'yawn_ar_threshold': 0.45,       # Seuil MAR ajusté
             'debug_mode': True               # Mode débogage activé
         }
 
         # Paramètres avancés de fatigue
         self.fatigue_params = {
-            'blink_threshold': 0.3,          # Durée minimale d'un clignement (secondes)
-            'microsleep_threshold': 0.8,      # Durée minimale d'un micro-sommeil (secondes)
-            'yawn_duration_threshold': 1.5,   # Durée minimale d'un bâillement (secondes)
-            'fatigue_window': 60,            # Fenêtre de temps pour l'analyse de la fatigue (secondes)
-            'blink_frequency_threshold': 30,  # Nombre de clignements par minute considéré comme signe de fatigue
-            'head_movement_threshold': 0.2    # Seuil de mouvement de la tête
+            'blink_threshold': 0.25,         # Réduction du seuil pour les clignements
+            'microsleep_threshold': 0.6,      # Réduction du seuil pour les micro-sommeils
+            'yawn_duration_threshold': 1.2,   # Réduction du seuil pour les bâillements
+            'fatigue_window': 30,            # Réduction de la fenêtre d'analyse
+            'blink_frequency_threshold': 25,  # Ajustement du seuil de fréquence des clignements
+            'head_movement_threshold': 0.15   # Réduction du seuil de mouvement de la tête
         }
 
         # Historique pour l'analyse de la fatigue
@@ -540,11 +563,19 @@ class VigilanceCore(QMainWindow):
     def predict_eye(self, eye_frame, eye_state):
         """Prédit l'état de l'œil avec amélioration de la détection"""
         try:
-            # Prétraitement de l'image
+            # Prétraitement amélioré de l'image
             eye_frame = cv2.resize(eye_frame, (64, 64))
             eye_frame = cv2.cvtColor(eye_frame, cv2.COLOR_BGR2RGB)
             
-            results_eye = self.detecteye.predict(eye_frame)
+            # Amélioration du contraste
+            eye_frame = cv2.convertScaleAbs(eye_frame, alpha=1.2, beta=10)
+            
+            results_eye = self.detecteye.predict(
+                eye_frame,
+                conf=self.detection_params['eye_conf_threshold'],
+                iou=self.detection_params['iou_threshold']
+            )
+            
             boxes = results_eye[0].boxes
             
             if len(boxes) == 0:
@@ -556,11 +587,13 @@ class VigilanceCore(QMainWindow):
             class_id = int(class_ids[max_confidence_index])
             confidence = confidences[max_confidence_index]
 
-            # Seuils de confiance ajustés
-            if class_id == 1 and confidence > 0.25:  # Œil fermé
-                eye_state = "Close Eye"
-            elif class_id == 0 and confidence > 0.25:  # Œil ouvert
-                eye_state = "Open Eye"
+            # Seuils de confiance ajustés avec validation temporelle
+            if class_id == 1 and confidence > self.detection_params['eye_conf_threshold']:  # Œil fermé
+                if eye_state == "Close Eye" or confidence > 0.45:  # Validation temporelle
+                    eye_state = "Close Eye"
+            elif class_id == 0 and confidence > self.detection_params['eye_conf_threshold']:  # Œil ouvert
+                if eye_state == "Open Eye" or confidence > 0.45:  # Validation temporelle
+                    eye_state = "Open Eye"
             
             return eye_state
         except Exception as e:
@@ -570,11 +603,19 @@ class VigilanceCore(QMainWindow):
     def predict_yawn(self, yawn_frame):
         """Prédit l'état du bâillement avec amélioration de la détection"""
         try:
-            # Prétraitement de l'image
+            # Prétraitement amélioré de l'image
             yawn_frame = cv2.resize(yawn_frame, (64, 64))
             yawn_frame = cv2.cvtColor(yawn_frame, cv2.COLOR_BGR2RGB)
             
-            results_yawn = self.detectyawn.predict(yawn_frame)
+            # Amélioration du contraste
+            yawn_frame = cv2.convertScaleAbs(yawn_frame, alpha=1.2, beta=10)
+            
+            results_yawn = self.detectyawn.predict(
+                yawn_frame,
+                conf=self.detection_params['yawn_conf_threshold'],
+                iou=self.detection_params['iou_threshold']
+            )
+            
             boxes = results_yawn[0].boxes
 
             if len(boxes) == 0:
@@ -586,11 +627,13 @@ class VigilanceCore(QMainWindow):
             class_id = int(class_ids[max_confidence_index])
             confidence = confidences[max_confidence_index]
 
-            # Seuils de confiance ajustés
-            if class_id == 0 and confidence > 0.40:  # Bâillement
-                self.yawn_state = "Yawn"
-            elif class_id == 1 and confidence > 0.40:  # Pas de bâillement
-                self.yawn_state = "No Yawn"
+            # Seuils de confiance ajustés avec validation temporelle
+            if class_id == 0 and confidence > self.detection_params['yawn_conf_threshold']:  # Bâillement
+                if self.yawn_state == "Yawn" or confidence > 0.5:  # Validation temporelle
+                    self.yawn_state = "Yawn"
+            elif class_id == 1 and confidence > self.detection_params['yawn_conf_threshold']:  # Pas de bâillement
+                if self.yawn_state == "No Yawn" or confidence > 0.5:  # Validation temporelle
+                    self.yawn_state = "No Yawn"
             
         except Exception as e:
             print(f"Erreur lors de la prédiction du bâillement: {e}")
@@ -631,36 +674,36 @@ class VigilanceCore(QMainWindow):
         """Analyse améliorée de l'état des yeux avec détection détaillée"""
         ear = self.eye_aspect_ratio(eye_points)
         
-        # Extraction de la région de l'œil
+        # Extraction et amélioration de la région de l'œil
         x, y = np.min(eye_points, axis=0)
         w, h = np.max(eye_points, axis=0) - np.min(eye_points, axis=0)
         eye_region = frame[int(y):int(y+h), int(x):int(x+w)]
         
         if eye_region.size == 0:
-            if self.detection_params['debug_mode']:
-                print("Avertissement: Région de l'œil vide")
             return 'unknown', 0.0, {'state': 'unknown', 'confidence': 0.0, 'details': 'Region non détectée'}
 
-        # Analyse de la luminosité locale
+        # Amélioration du contraste de la région de l'œil
+        eye_region = cv2.convertScaleAbs(eye_region, alpha=1.2, beta=10)
+        
+        # Analyse de la luminosité locale avec compensation
         brightness = np.mean(eye_region)
         contrast = np.std(eye_region)
         
-        # Ajustement dynamique du seuil
-        dynamic_threshold = self.detection_params['eye_ar_threshold'] * (1.0 + (brightness - 128) / 256.0)
+        # Ajustement dynamique du seuil basé sur la luminosité
+        brightness_factor = 1.0 + (128 - brightness) / 256.0
+        dynamic_threshold = self.detection_params['eye_ar_threshold'] * brightness_factor
         
-        if self.detection_params['debug_mode']:
-            print(f"EAR: {ear:.3f}, Seuil: {dynamic_threshold:.3f}, Luminosité: {brightness:.1f}")
-
-        # Classification détaillée de l'état
-        if ear < dynamic_threshold * 0.7:  # Très fermé
-            confidence = (dynamic_threshold - ear) / dynamic_threshold
+        # Classification détaillée avec compensation de luminosité
+        if ear < dynamic_threshold * 0.8:  # Très fermé
+            confidence = min(1.0, (dynamic_threshold - ear) / dynamic_threshold * 1.2)
             return 'closed', confidence, {
                 'state': 'closed',
                 'confidence': confidence,
                 'details': 'Œil complètement fermé',
                 'brightness': brightness,
                 'contrast': contrast,
-                'ear': ear
+                'ear': ear,
+                'threshold': dynamic_threshold
             }
         elif ear < dynamic_threshold:  # Partiellement fermé
             confidence = (dynamic_threshold - ear) / dynamic_threshold
@@ -670,17 +713,19 @@ class VigilanceCore(QMainWindow):
                 'details': 'Œil partiellement fermé',
                 'brightness': brightness,
                 'contrast': contrast,
-                'ear': ear
+                'ear': ear,
+                'threshold': dynamic_threshold
             }
         else:  # Ouvert
-            confidence = (ear - dynamic_threshold) / (1.0 - dynamic_threshold)
+            confidence = min(1.0, (ear - dynamic_threshold) / (1.0 - dynamic_threshold) * 1.2)
             return 'open', confidence, {
                 'state': 'open',
                 'confidence': confidence,
                 'details': 'Œil ouvert',
                 'brightness': brightness,
                 'contrast': contrast,
-                'ear': ear
+                'ear': ear,
+                'threshold': dynamic_threshold
             }
 
     def mouth_aspect_ratio(self, mouth_points):
@@ -768,7 +813,7 @@ class VigilanceCore(QMainWindow):
         return ear
 
     def process_frames(self):
-        """Traitement amélioré des frames avec détection détaillée"""
+        """Traitement amélioré des frames avec enregistrement dans Cassandra"""
         while True:
             if not hasattr(self, 'frame_queue') or self.frame_queue.empty():
                 time.sleep(0.01)
@@ -836,6 +881,32 @@ class VigilanceCore(QMainWindow):
 
                     # Affichage des informations détaillées sur la frame
                     self.display_eye_info(frame, left_details, right_details)
+
+                    # Enregistrement des événements dans Cassandra
+                    if left_eye_state == 'closed' and right_eye_state == 'closed':
+                        self.log_event(
+                            event_type='blink',
+                            confidence=min(left_conf, right_conf),
+                            details={'left_eye': left_details, 'right_eye': right_details}
+                        )
+                        self.play_alert_sound()  # Son d'alerte pour les clignements
+
+                    if self.yawn_state == 'yawn':
+                        self.log_event(
+                            event_type='yawn',
+                            confidence=mar,
+                            details={'mouth_state': self.yawn_state}
+                        )
+                        self.play_alert_sound()  # Son d'alerte pour les bâillements
+
+                    # Enregistrement des alertes de fatigue
+                    if self.fatigue_level > 75:
+                        self.log_alert(
+                            alert_type='fatigue',
+                            severity='critical',
+                            message='Niveau de fatigue critique détecté'
+                        )
+                        self.play_alert_sound()  # Son d'alerte pour la fatigue critique
 
                     # Mise à jour de l'interface
                     ui_data = {
@@ -914,13 +985,67 @@ class VigilanceCore(QMainWindow):
         self.video_label.setPixmap(QPixmap.fromImage(p))
 
     def play_alert_sound(self):
-        frequency = 2200  # Son clair et professionnel
-        duration = 200
-        winsound.Beep(frequency, duration)
+        """Joue un son d'alerte via le buzzer"""
+        if self.use_arduino and self.arduino:
+            try:
+                # Envoi de la commande au buzzer
+                self.arduino.write(b'B\n')  # Commande pour activer le buzzer
+                time.sleep(0.2)  # Durée du son
+                self.arduino.write(b'b\n')  # Commande pour désactiver le buzzer
+            except Exception as e:
+                print(f"Erreur lors de l'activation du buzzer: {str(e)}")
+        else:
+            # Fallback sur le buzzer du PC
+            frequency = 2200
+            duration = 200
+            winsound.Beep(frequency, duration)
 
-    def play_sound_in_thread(self):
-        sound_thread = threading.Thread(target=self.play_alert_sound)
-        sound_thread.start()
+    def log_event(self, event_type, confidence, details):
+        """Enregistre un événement dans Cassandra si disponible"""
+        if self.cassandra:
+            try:
+                self.cassandra.log_fatigue_event(
+                    event_type=event_type,
+                    confidence=confidence,
+                    details=details,
+                    fatigue_level=self.fatigue_level,
+                    device_id=self.device_id,
+                    session_id=self.session_id
+                )
+            except Exception as e:
+                print(f"Erreur lors de l'enregistrement de l'événement: {str(e)}")
+
+    def log_alert(self, alert_type, severity, message):
+        """Enregistre une alerte dans Cassandra si disponible"""
+        if self.cassandra:
+            try:
+                self.cassandra.log_alert(
+                    alert_type=alert_type,
+                    severity=severity,
+                    message=message,
+                    device_id=self.device_id,
+                    session_id=self.session_id
+                )
+            except Exception as e:
+                print(f"Erreur lors de l'enregistrement de l'alerte: {str(e)}")
+
+    def update_session_stats(self):
+        """Met à jour les statistiques de la session dans Cassandra si disponible"""
+        if self.cassandra:
+            try:
+                stats = {
+                    'start_time': self.session_start_time,
+                    'end_time': datetime.now(),
+                    'total_blinks': self.blinks,
+                    'total_yawns': self.yawns,
+                    'total_microsleeps': self.microsleeps,
+                    'max_fatigue_level': self.fatigue_level,
+                    'avg_fatigue_level': self.fatigue_level,
+                    'device_id': self.device_id
+                }
+                self.cassandra.update_session_stats(self.session_id, stats)
+            except Exception as e:
+                print(f"Erreur lors de la mise à jour des statistiques: {str(e)}")
 
     def resizeEvent(self, event):
         self.display_frame(self.frame_queue.get() if not self.frame_queue.empty() else np.zeros((480, 640, 3), dtype=np.uint8))
@@ -929,11 +1054,18 @@ class VigilanceCore(QMainWindow):
     def closeEvent(self, event):
         """Gestion propre de la fermeture de l'application"""
         try:
-            # Fermer la connexion Arduino si elle existe
+            # Mise à jour des statistiques finales
+            self.update_session_stats()
+            
+            # Fermeture de la connexion Cassandra
+            if self.cassandra:
+                self.cassandra.close()
+            
+            # Fermeture de la connexion Arduino
             if self.arduino:
                 self.arduino.close()
             
-            # Sauvegarder les statistiques
+            # Sauvegarde des statistiques
             with open("vigilance_stats.txt", "w") as f:
                 f.write(f"Clignements: {self.blinks}\n")
                 f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
@@ -941,10 +1073,10 @@ class VigilanceCore(QMainWindow):
                 f.write(f"Durée bâillements: {round(self.yawn_duration, 2)} s\n")
                 f.write(f"Niveau de fatigue: {self.fatigue_level}%\n")
             
-            # Arrêter les threads
+            # Arrêt des threads
             self.stop_event.set()
             
-            # Fermer la caméra
+            # Fermeture de la caméra
             if hasattr(self, 'cap') and self.cap.isOpened():
                 self.cap.release()
             
