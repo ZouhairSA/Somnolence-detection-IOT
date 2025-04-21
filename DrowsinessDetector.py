@@ -7,12 +7,13 @@ import numpy as np
 from ultralytics import YOLO
 import mediapipe as mp
 import sys
-from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QProgressBar
+from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QHBoxLayout, QProgressBar, QGridLayout
 from PyQt5.QtGui import QImage, QPixmap, QFont, QPalette, QColor
 from PyQt5.QtCore import Qt, QTimer, QSize, QPropertyAnimation, QEasingCurve, pyqtSignal, QObject
 import serial
 import uuid
 from datetime import datetime
+import json
 
 try:
     from cassandra_manager import CassandraManager
@@ -36,8 +37,10 @@ class VigilanceCore(QMainWindow):
             try:
                 self.cassandra = CassandraManager()
                 self.session_id = str(uuid.uuid4())
-                self.device_id = "arduino_mega"
+                self.device_id = "camera_device_01"  # Identifiant unique du dispositif
                 self.session_start_time = datetime.now()
+                print(f"Session ID: {self.session_id}")
+                print(f"Démarrage session: {self.session_start_time}")
             except Exception as e:
                 print(f"Erreur lors de l'initialisation de Cassandra: {str(e)}")
                 self.cassandra = None
@@ -177,208 +180,193 @@ class VigilanceCore(QMainWindow):
             'alert_level': 0
         }
 
-        # Configuration de la fenêtre principale
-        self.setWindowTitle("Détection de Somnolence")
-        self.setGeometry(100, 100, 1280, 720)
+        # Configuration du dashboard moderne
+        self.setWindowTitle("Système de Vigilance au Volant")
+        self.setGeometry(100, 100, 1600, 900)
         self.setStyleSheet("""
             QMainWindow {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0A0F23, stop:1 #1E2A44);
-                border: none;
+                background: #1e1e2e;
+            }
+            QWidget {
+                font-family: 'Segoe UI';
             }
             QLabel {
-                color: #FFFFFF;
-                padding: 10px;
-                background-color: rgba(14, 20, 35, 0.7);
-                border-radius: 10px;
-                border: 2px solid #007BFF;
+                color: #cdd6f4;
+                background: transparent;
+                border: none;
             }
             QProgressBar {
-                border: none;
-                border-radius: 10px;
-                background: rgba(10, 15, 35, 0.8);
+                border: 2px solid #89b4fa;
+                border-radius: 8px;
+                background-color: #313244;
+                color: #cdd6f4;
                 text-align: center;
-                color: #FFFFFF;
-                font-family: 'Orbitron';
-                font-size: 16px;
+                font-size: 14px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #FF007A);
-                border-radius: 10px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #89b4fa, stop:1 #f38ba8);
+                border-radius: 6px;
             }
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #007BFF);
-                color: #FFFFFF;
-                padding: 12px;
-                border-radius: 10px;
+                background-color: #89b4fa;
+                color: #1e1e2e;
                 border: none;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 14px;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #007BFF, stop:1 #00D4FF);
+                background-color: #b4befe;
             }
         """)
 
-        # Widget central et layout principal
-        self.central_widget = QWidget(self)
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(20, 20, 20, 20)
-        self.main_layout.setSpacing(20)
+        # Layout principal
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Contenu principal avec effet verre dépoli
-        self.content_widget = QWidget()
-        self.content_layout = QHBoxLayout(self.content_widget)
-        self.content_layout.setSpacing(25)
-        self.main_layout.addWidget(self.content_widget, stretch=1)
+        # Panneau gauche (vidéo)
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_panel.setStyleSheet("""
+            QWidget {
+                background-color: #313244;
+                border-radius: 15px;
+            }
+        """)
 
-        # Zone vidéo avec bordure néon
-        self.video_label = QLabel(self)
+        # Zone vidéo
+        self.video_label = QLabel()
+        self.video_label.setMinimumSize(800, 600)
         self.video_label.setStyleSheet("""
             QLabel {
-                border-radius: 20px;
-                background-color: rgba(14, 20, 35, 0.8);
-                border: 3px solid #00D4FF;
-                box-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+                background-color: #1e1e2e;
+                border-radius: 12px;
+                padding: 10px;
             }
         """)
-        self.video_label.setMinimumSize(800, 500)
-        self.video_label.setScaledContents(True)
-        self.content_layout.addWidget(self.video_label, stretch=3)
+        left_layout.addWidget(self.video_label)
 
-        # Panneau de contrôle avec effet verre dépoli
-        self.control_widget = QWidget()
-        self.control_layout = QVBoxLayout(self.control_widget)
-        self.control_widget.setStyleSheet("""
+        main_layout.addWidget(left_panel, stretch=2)
+
+        # Panneau droit (statistiques)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_panel.setStyleSheet("""
             QWidget {
-                background: rgba(14, 20, 35, 0.7);
-                border-radius: 20px;
-                border: 2px solid #007BFF;
-                box-shadow: 0 0 15px rgba(0, 123, 255, 0.5);
-                padding: 20px;
+                background-color: #313244;
+                border-radius: 15px;
             }
         """)
-        self.content_layout.addWidget(self.control_widget, stretch=1)
 
-        # Barre de fatigue avec dégradé néon
+        # En-tête avec niveau de vigilance
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        
+        vigilance_title = QLabel("NIVEAU DE VIGILANCE")
+        vigilance_title.setStyleSheet("""
+            QLabel {
+                color: #89b4fa;
+                font-size: 18px;
+                font-weight: bold;
+                letter-spacing: 2px;
+            }
+        """)
+        header_layout.addWidget(vigilance_title, alignment=Qt.AlignCenter)
+
         self.fatigue_bar = QProgressBar()
         self.fatigue_bar.setRange(0, 100)
         self.fatigue_bar.setValue(0)
-        self.fatigue_bar.setTextVisible(True)
-        self.fatigue_bar.setFormat("Fatigue: %p%")
-        self.fatigue_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 10px;
-                background: rgba(10, 15, 35, 0.8);
-                text-align: center;
-                color: #FFFFFF;
-                font-family: 'Orbitron';
-                font-size: 16px;
-                box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #FF007A);
-                border-radius: 10px;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
-            }
-        """)
-        self.control_layout.addWidget(self.fatigue_bar)
+        self.fatigue_bar.setFormat("%p%")
+        self.fatigue_bar.setFixedHeight(15)
+        header_layout.addWidget(self.fatigue_bar)
 
-        # Statut principal avec effet néon
-        self.status_label = QLabel("État: Optimal")
-        self.status_label.setFont(QFont("Orbitron", 20, QFont.Bold))
+        right_layout.addWidget(header_widget)
+
+        # État actuel
+        self.status_label = QLabel("ÉTAT NORMAL")
         self.status_label.setStyleSheet("""
             QLabel {
-                color: #00D4FF;
-                text-align: center;
-                padding: 15px;
-                background: rgba(0, 212, 255, 0.2);
-                border-radius: 12px;
-                box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
+                color: #a6e3a1;
+                font-size: 24px;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 8px;
+                background-color: rgba(166, 227, 161, 0.1);
             }
         """)
-        self.control_layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(self.status_label)
 
-        # Alerte avec effet clignotant
+        # Zone d'alerte
         self.alert_label = QLabel("")
-        self.alert_label.setFont(QFont("Orbitron", 18, QFont.Bold))
         self.alert_label.setStyleSheet("""
             QLabel {
-                color: #FF007A;
-                text-align: center;
-                padding: 12px;
-                background: rgba(255, 0, 122, 0.2);
-                border-radius: 12px;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.4);
+                color: #f38ba8;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 8px;
+                background-color: rgba(243, 139, 168, 0.1);
             }
         """)
-        self.control_layout.addWidget(self.alert_label)
+        self.alert_label.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(self.alert_label)
 
-        # Métriques avec effet néon
+        # Statistiques principales
+        stats_widget = QWidget()
+        stats_layout = QGridLayout(stats_widget)
+        stats_layout.setSpacing(15)
+
         self.metrics = {
-            "blinks": QLabel("👁 Clignements: 0"),
-            "microsleeps": QLabel("💤 Micro-sommeils: 0 s"),
-            "yawns": QLabel("😴 Bâillements: 0"),
-            "yawn_duration": QLabel("⏲ Durée bâillements: 0 s"),
-            "fps": QLabel("📈 FPS: 0")
+            "blinks": self.create_stat_widget("CLIGNEMENTS", "0", "👁"),
+            "microsleeps": self.create_stat_widget("MICRO-SOMMEILS", "0 s", "💤"),
+            "yawns": self.create_stat_widget("BÂILLEMENTS", "0", "😴"),
+            "head_pose": self.create_stat_widget("POSITION TÊTE", "Normale", "🔄"),
+            "attention": self.create_stat_widget("ATTENTION", "100%", "🎯"),
+            "session": self.create_stat_widget("DURÉE SESSION", "00:00", "⏱")
         }
-        for label in self.metrics.values():
-            label.setFont(QFont("Orbitron", 14))
-            label.setStyleSheet("""
-                QLabel {
-                    color: #FFFFFF;
-                    padding: 12px;
-                    background: rgba(0, 123, 255, 0.1);
-                    border-radius: 10px;
-                    margin: 5px 0;
-                    box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
-                }
-            """)
-            label.setMinimumHeight(50)
-            self.control_layout.addWidget(label)
 
-        self.control_layout.addStretch()
+        # Disposition en grille 2x3
+        positions = [(i, j) for i in range(2) for j in range(3)]
+        for (key, widget), pos in zip(self.metrics.items(), positions):
+            stats_layout.addWidget(widget, *pos)
 
-        # Boutons avec effet néon
-        self.button_layout = QHBoxLayout()
-        self.reset_button = QPushButton("Réinitialiser")
-        self.reset_button.setFont(QFont("Orbitron", 14, QFont.Bold))
-        self.reset_button.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00D4FF, stop:1 #007BFF);
-                color: #FFFFFF;
-                padding: 12px;
-                border-radius: 10px;
-                border: none;
-                box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #007BFF, stop:1 #00D4FF);
-                box-shadow: 0 0 25px rgba(0, 212, 255, 0.8);
-            }
-        """)
+        right_layout.addWidget(stats_widget)
+
+        # Boutons de contrôle
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+        buttons_layout.setSpacing(15)
+
+        self.reset_button = QPushButton("RÉINITIALISER")
         self.reset_button.clicked.connect(self.reset_stats)
-        self.button_layout.addWidget(self.reset_button)
-
-        self.quit_button = QPushButton("Arrêt")
-        self.quit_button.setFont(QFont("Orbitron", 14, QFont.Bold))
+        
+        self.quit_button = QPushButton("QUITTER")
+        self.quit_button.clicked.connect(self.close)
         self.quit_button.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF007A, stop:1 #FF00D4);
-                color: #FFFFFF;
-                padding: 12px;
-                border-radius: 10px;
-                border: none;
-                box-shadow: 0 0 15px rgba(255, 0, 122, 0.5);
+                background-color: #f38ba8;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF00D4, stop:1 #FF007A);
-                box-shadow: 0 0 25px rgba(255, 0, 122, 0.8);
+                background-color: #f5c2e7;
             }
         """)
-        self.quit_button.clicked.connect(self.close)
-        self.button_layout.addWidget(self.quit_button)
+        
+        buttons_layout.addWidget(self.reset_button)
+        buttons_layout.addWidget(self.quit_button)
+        
+        right_layout.addWidget(buttons_widget)
+        main_layout.addWidget(right_panel, stretch=1)
 
-        self.control_layout.addLayout(self.button_layout)
+        # Timer pour la mise à jour de la durée de session
+        self.session_timer = QTimer()
+        self.session_timer.timeout.connect(self.update_session_duration)
+        self.session_timer.start(1000)  # Mise à jour chaque seconde
+        self.session_start_time = time.time()
 
         # Test des caméras disponibles et sélection de la caméra USB externe
         available_cameras = []
@@ -444,61 +432,138 @@ class VigilanceCore(QMainWindow):
         self.signal_emitter.update_ui.connect(self.update_ui_from_signal)
         self.signal_emitter.update_frame.connect(self.update_frame_from_signal)
 
+    def create_stat_widget(self, title, initial_value, icon):
+        """Crée un widget de statistique élégant"""
+        widget = QWidget()
+        widget.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e2e;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
+        layout = QVBoxLayout(widget)
+        layout.setSpacing(5)
+
+        # Titre avec icône
+        title_label = QLabel(f"{icon} {title}")
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #89b4fa;
+                font-size: 12px;
+                font-weight: bold;
+                letter-spacing: 1px;
+            }
+        """)
+        title_label.setAlignment(Qt.AlignCenter)
+
+        # Valeur
+        value_label = QLabel(initial_value)
+        value_label.setStyleSheet("""
+            QLabel {
+                color: #cdd6f4;
+                font-size: 24px;
+                font-weight: bold;
+            }
+        """)
+        value_label.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+
+        widget.value_label = value_label
+        return widget
+
+    def update_session_duration(self):
+        """Met à jour la durée de la session"""
+        duration = int(time.time() - self.session_start_time)
+        minutes = duration // 60
+        seconds = duration % 60
+        self.metrics["session"].value_label.setText(f"{minutes:02d}:{seconds:02d}")
+
     def update_ui_from_signal(self, data):
         """Met à jour l'interface utilisateur depuis le thread principal"""
         if 'fatigue_level' in data:
             new_fatigue_level = data['fatigue_level']
             if new_fatigue_level != self.fatigue_level:
+                self.fatigue_animation = QPropertyAnimation(self.fatigue_bar, b"value")
                 self.fatigue_animation.setStartValue(self.fatigue_level)
                 self.fatigue_animation.setEndValue(new_fatigue_level)
                 self.fatigue_animation.setDuration(500)
                 self.fatigue_animation.start()
             self.fatigue_level = new_fatigue_level
 
+            # Mise à jour du niveau d'attention
+            attention = max(0, 100 - new_fatigue_level)
+            self.metrics["attention"].value_label.setText(f"{attention}%")
+
         if 'alert_text' in data:
             self.alert_text = data['alert_text']
             self.alert_label.setText(self.alert_text)
+            if self.alert_text:
+                self.alert_label.setStyleSheet("""
+                    QLabel {
+                        color: #f38ba8;
+                        font-size: 16px;
+                        font-weight: bold;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background-color: rgba(243, 139, 168, 0.1);
+                    }
+                """)
+            else:
+                self.alert_label.setStyleSheet("""
+                    QLabel {
+                        color: #f38ba8;
+                        font-size: 16px;
+                        font-weight: bold;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background-color: transparent;
+                    }
+                """)
 
         if 'status' in data:
-            self.status_label.setText(data['status'])
-            # Mise à jour du style en fonction du niveau de fatigue
-            if self.fatigue_level > 75:
-                style = """
-                    color: #FF0000;
-                    text-align: center;
-                    padding: 12px;
-                    background-color: rgba(255, 0, 0, 0.2);
-                    border-radius: 8px;
-                    font-size: 18px;
-                    font-weight: bold;
-                """
-            elif self.fatigue_level > 50:
-                style = """
-                    color: #FFA500;
-                    text-align: center;
-                    padding: 12px;
-                    background-color: rgba(255, 165, 0, 0.2);
-                    border-radius: 8px;
-                    font-size: 18px;
-                    font-weight: bold;
-                """
+            self.status_label.setText(data['status'].upper())
+            if "CRITIQUE" in data['status']:
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        color: #f38ba8;
+                        font-size: 24px;
+                        font-weight: bold;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background-color: rgba(243, 139, 168, 0.1);
+                    }
+                """)
+            elif "ATTENTION" in data['status']:
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        color: #fab387;
+                        font-size: 24px;
+                        font-weight: bold;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background-color: rgba(250, 179, 135, 0.1);
+                    }
+                """)
             else:
-                style = """
-                    color: #00FF00;
-                    text-align: center;
-                    padding: 12px;
-                    background-color: rgba(0, 255, 0, 0.2);
-                    border-radius: 8px;
-                    font-size: 18px;
-                    font-weight: bold;
-                """
-            self.status_label.setStyleSheet(style)
+                self.status_label.setStyleSheet("""
+                    QLabel {
+                        color: #a6e3a1;
+                        font-size: 24px;
+                        font-weight: bold;
+                        padding: 10px;
+                        border-radius: 8px;
+                        background-color: rgba(166, 227, 161, 0.1);
+                    }
+                """)
 
         if 'metrics' in data:
             metrics = data['metrics']
             for key, value in metrics.items():
                 if key in self.metrics:
-                    self.metrics[key].setText(value)
+                    self.metrics[key].value_label.setText(value)
 
     def update_frame_from_signal(self, frame):
         """Met à jour l'affichage de la frame depuis le thread principal"""
@@ -552,7 +617,7 @@ class VigilanceCore(QMainWindow):
 
         else:
             self.alert_text = ""
-            self.status_label.setText("État: Optimal")
+            self.status_label.setText("État: Normal")
             self.status_label.setStyleSheet("""
                 color: #FFFFFF;
                 text-align: center;
@@ -566,18 +631,18 @@ class VigilanceCore(QMainWindow):
             self.alert_timer.stop()
 
         self.alert_label.setText(self.alert_text)
-        self.metrics["blinks"].setText(f"👁 Clignements: {self.blinks}")
-        self.metrics["microsleeps"].setText(f"💤 Micro-sommeils: {round(self.microsleeps, 2)} s")
-        self.metrics["yawns"].setText(f"😴 Bâillements: {self.yawns}")
-        self.metrics["yawn_duration"].setText(f"⏲ Durée bâillements: {round(self.yawn_duration, 2)} s")
-        self.metrics["fps"].setText(f"📈 FPS: {round(self.fps, 1)}")
+        self.metrics["blinks"].value_label.setText(f"👁 Clignements: {self.blinks}")
+        self.metrics["microsleeps"].value_label.setText(f"💤 Micro-sommeils: {round(self.microsleeps, 2)} s")
+        self.metrics["yawns"].value_label.setText(f"😴 Bâillements: {self.yawns}")
+        self.metrics["yawn_duration"].value_label.setText(f"⏲ Durée bâillements: {round(self.yawn_duration, 2)} s")
+        self.metrics["fps"].value_label.setText(f"📈 FPS: {round(self.fps, 1)}")
 
         # Calcul des FPS
         self.frame_count += 1
         elapsed_time = time.time() - self.start_time
         if elapsed_time > 1:
             self.fps = self.frame_count / elapsed_time
-            self.metrics["fps"].setText(f"📈 FPS: {round(self.fps, 1)}")
+            self.metrics["fps"].value_label.setText(f"📈 FPS: {round(self.fps, 1)}")
             self.frame_count = 0
             self.start_time = time.time()
 
@@ -877,7 +942,7 @@ class VigilanceCore(QMainWindow):
                 self.current_state['alert_level'] = 3  # Niveau critique
                 self.play_alert_sound()
                 if self.cassandra:
-                    self.log_alert("microsleep", "critical", f"Micro-sommeil de {duration:.1f} secondes")
+                    self.log_event("microsleep", "critical", f"Micro-sommeil de {duration:.1f} secondes")
         else:
             if self.microsleep_start_time is not None:
                 duration = current_time - self.microsleep_start_time
@@ -902,7 +967,7 @@ class VigilanceCore(QMainWindow):
                 self.current_state['alert_level'] = 2  # Niveau élevé
                 self.play_alert_sound()
                 if self.cassandra:
-                    self.log_alert("yawning", "high", f"{self.yawn_count_last_minute} bâillements en 1 minute")
+                    self.log_event("yawning", "high", f"{self.yawn_count_last_minute} bâillements en 1 minute")
 
     def update_fatigue_level(self, eyes_closed, yawning, head_tilted, microsleep_duration):
         """Calcul amélioré du niveau de fatigue"""
@@ -1063,23 +1128,21 @@ class VigilanceCore(QMainWindow):
         return ""
 
     def get_status_message(self):
-        """Génère un message de statut détaillé"""
+        """Retourne le message de statut en français"""
         if self.fatigue_level > 75:
-            return "État: CRITIQUE - Repos nécessaire"
+            return "ÉTAT CRITIQUE"
         elif self.fatigue_level > 50:
-            return "État: ATTENTION - Fatigue détectée"
-        return "État: Normal"
+            return "ATTENTION REQUISE"
+        return "ÉTAT NORMAL"
 
     def get_metrics_data(self):
-        """Prépare les données des métriques pour l'affichage avec plus de détails"""
+        """Prépare les données des métriques en français"""
         return {
-            'blinks': f"👁 Clignements: {self.blinks}/min",
-            'microsleeps': f"💤 Micro-sommeils: {round(self.microsleeps, 2)} s",
-            'yawns': f"😴 Bâillements: {self.yawns}",
-            'yawn_duration': f"⏲ Durée bâillements: {round(self.yawn_duration, 2)} s",
-            'fps': f"📈 FPS: {round(self.fps, 1)}",
-            'left_eye': f"👁 Œil gauche: {self.left_eye_state}",
-            'right_eye': f"👁 Œil droit: {self.right_eye_state}"
+            'blinks': str(self.blinks),
+            'microsleeps': f"{round(self.microsleeps, 1)} s",
+            'yawns': str(self.yawns),
+            'head_pose': "Normale" if not self.current_state.get('head_tilted', False) else "Inclinée",
+            'attention': f"{max(0, 100 - self.fatigue_level)}%"
         }
 
     def display_frame(self, frame):
@@ -1107,58 +1170,101 @@ class VigilanceCore(QMainWindow):
             winsound.Beep(frequency, duration)
 
     def log_event(self, event_type, confidence, details):
-        """Enregistre un événement dans Cassandra si disponible"""
+        """Enregistre un événement dans Cassandra"""
         if self.cassandra:
             try:
-                self.cassandra.log_fatigue_event(
-                    event_type=event_type,
-                    confidence=confidence,
-                    details=details,
-                    fatigue_level=self.fatigue_level,
-                    device_id=self.device_id,
-                    session_id=self.session_id
-                )
+                event_id = str(uuid.uuid4())
+                timestamp = datetime.now()
+                
+                # Conversion des détails en chaîne JSON
+                details_json = json.dumps(details)
+                
+                # Insertion dans la table events
+                query = """
+                    INSERT INTO vigilance_db.events 
+                    (event_id, event_type, device_id, session_id, confidence, details, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+                self.cassandra.session.execute(query, (
+                    event_id,
+                    event_type,
+                    self.device_id,
+                    self.session_id,
+                    float(confidence),
+                    details_json,
+                    timestamp
+                ))
+                
+                print(f"Événement enregistré: {event_type} à {timestamp}")
             except Exception as e:
                 print(f"Erreur lors de l'enregistrement de l'événement: {str(e)}")
 
     def log_alert(self, alert_type, severity, message):
-        """Enregistre une alerte dans Cassandra si disponible"""
+        """Enregistre une alerte dans Cassandra"""
         if self.cassandra:
             try:
-                self.cassandra.log_alert(
-                    alert_type=alert_type,
-                    severity=severity,
-                    message=message,
-                    device_id=self.device_id,
-                    session_id=self.session_id
-                )
+                alert_id = str(uuid.uuid4())
+                timestamp = datetime.now()
+                
+                # Insertion dans la table alerts
+                query = """
+                    INSERT INTO vigilance_db.alerts 
+                    (alert_id, alert_type, device_id, session_id, severity, message, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """
+                self.cassandra.session.execute(query, (
+                    alert_id,
+                    alert_type,
+                    self.device_id,
+                    self.session_id,
+                    severity,
+                    message,
+                    timestamp
+                ))
+                
+                print(f"Alerte enregistrée: {alert_type} - {message} à {timestamp}")
             except Exception as e:
                 print(f"Erreur lors de l'enregistrement de l'alerte: {str(e)}")
 
     def update_session_stats(self):
-        """Met à jour les statistiques de la session dans Cassandra si disponible"""
+        """Met à jour les statistiques de la session dans Cassandra"""
         if self.cassandra:
             try:
-                stats = {
-                    'start_time': self.session_start_time,
-                    'end_time': datetime.now(),
-                    'total_blinks': self.blinks,
-                    'total_yawns': self.yawns,
-                    'total_microsleeps': self.microsleeps,
-                    'max_fatigue_level': self.fatigue_level,
-                    'avg_fatigue_level': self.fatigue_level,
-                    'device_id': self.device_id
-                }
-                self.cassandra.update_session_stats(self.session_id, stats)
+                end_time = datetime.now()
+                duration = (end_time - self.session_start_time).total_seconds()
+                
+                # Calcul de la moyenne du niveau de fatigue
+                avg_fatigue = self.fatigue_level  # À améliorer avec une vraie moyenne
+                
+                # Insertion dans la table session_stats
+                query = """
+                    INSERT INTO vigilance_db.session_stats 
+                    (session_id, device_id, start_time, end_time, total_blinks, 
+                     total_yawns, total_microsleeps, max_fatigue_level, avg_fatigue_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                self.cassandra.session.execute(query, (
+                    self.session_id,
+                    self.device_id,
+                    self.session_start_time,
+                    end_time,
+                    self.blinks,
+                    self.yawns,
+                    float(self.microsleeps),
+                    self.fatigue_level,
+                    avg_fatigue
+                ))
+                
+                print(f"Statistiques de session mises à jour pour {self.session_id}")
             except Exception as e:
-                print(f"Erreur lors de la mise à jour des statistiques: {str(e)}")
+                print(f"Erreur lors de la mise à jour des statistiques de session: {str(e)}")
 
     def resizeEvent(self, event):
         self.display_frame(self.frame_queue.get() if not self.frame_queue.empty() else np.zeros((480, 640, 3), dtype=np.uint8))
         super().resizeEvent(event)
 
     def closeEvent(self, event):
-        """Gestion propre de la fermeture de l'application"""
+        """Gestion améliorée de la fermeture de l'application"""
         try:
             # Mise à jour des statistiques finales
             self.update_session_stats()
@@ -1171,13 +1277,16 @@ class VigilanceCore(QMainWindow):
             if self.arduino:
                 self.arduino.close()
             
-            # Sauvegarde des statistiques
+            # Sauvegarde des statistiques locales
             with open("vigilance_stats.txt", "w") as f:
+                f.write(f"Session ID: {self.session_id}\n")
+                f.write(f"Début de session: {self.session_start_time}\n")
+                f.write(f"Fin de session: {datetime.now()}\n")
                 f.write(f"Clignements: {self.blinks}\n")
                 f.write(f"Micro-sommeils: {round(self.microsleeps, 2)} s\n")
                 f.write(f"Bâillements: {self.yawns}\n")
                 f.write(f"Durée bâillements: {round(self.yawn_duration, 2)} s\n")
-                f.write(f"Niveau de fatigue: {self.fatigue_level}%\n")
+                f.write(f"Niveau de fatigue final: {self.fatigue_level}%\n")
             
             # Arrêt des threads
             self.stop_event.set()
@@ -1186,6 +1295,7 @@ class VigilanceCore(QMainWindow):
             if hasattr(self, 'cap') and self.cap.isOpened():
                 self.cap.release()
             
+            print("Application fermée proprement")
             event.accept()
         except Exception as e:
             print(f"Erreur lors de la fermeture: {str(e)}")
